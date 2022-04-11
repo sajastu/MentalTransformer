@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project version="4">
+  <component name="PublishConfigData" remoteFilesAllowedToDisappearOnAutoupload="false">
+    <serverData>
+      <paths name="sajad@barolo:20122 (2)">
+        <serverdata>
+          <mappings>
+            <mapping deploy="/home/sajad/packages/summarization/transformers" local="$PROJECT_DIR$" web="/home/sajad/packages/summarization/transformers" />
+          </mappings>
+        </serverdata>
+      </paths>
+      <paths name="sajad@brunello:20022 password">
+        <serverdata>
+          <mappings>
+            <mapping deploy="packages/summarization/transformers" local="$PROJECT_DIR$" web="/home/sajad/packages/summarization/transformers" />
+          </mappings>
+        </serverdata>
+      </paths>
+      <paths name="sajad@chianti:20222">
+        <serverdata>
+          <mappings>
+            <mapping deploy="/home/sajad/packages/summarization/transformers" local="$PROJECT_DIR$" web="/home/sajad/packages/summarization/transformers" />
+          </mappings>
+        </serverdata>
+      </paths>
+    </serverData>
+  </component>
+</project>

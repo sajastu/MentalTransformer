@@ -1,0 +1,910 @@
+narcolepsy
+health care process
+portion of pathological body substance
+developmental coordination disorder
+gambling addiction
+psychotic disorder due to a general medical condition
+process addiction
+obsessive-compulsive disorder
+shared psychotic disorder
+sensitization
+openness to experience
+paranoid schizophrenia
+injury
+pica disease
+bipolar disorder
+bpd
+envenomation resulting in hemorrhagic damage to other organism
+amusia
+specific phobia
+clinically abnormal
+hypomanic episode
+dysphoria
+catatonic excitement
+psychologic dyspareunia
+suicidal ideations
+analysis subset ontology module
+multiple personality disorder
+social dysfunction
+conditioned response
+behavioral defense response to insect
+EL++ ontology module
+life course
+stuttering
+ego-dystonic sexual orientation
+mental disease
+hatching behavior
+linguistic capability
+envenomation resulting in vasodilation in other organism
+larval feeding behavior
+curation subset ontology module
+cataplexy
+circadian sleep/wake cycle process
+internet addiction
+behavioral defense response to nematode
+communication disorder
+information content entity
+nightmare
+alcohol-induced mental disorder
+larval behavior
+physical examination finding
+catatonic stupor
+catatonic rigidity
+arousal
+substance-related disorder
+alcoholic psychosis
+envenomation resulting in modulation of G-protein coupled receptor activity in other organism
+panic attack
+circadian rhythm
+envenomation resulting in positive regulation of complement activation, lectin pathway in other organism
+written communication
+cortical deafness
+grossly disorganized behavior
+trichotillomania
+childhood disintegrative disease
+male mating behavior
+hypochondriasis
+ancillary health care process
+envenomation resulting in proteolysis in other organism
+envenomation resulting in negative regulation of sensory perception of pain in other organism
+anorexia nervosa
+auditory agnosia
+resistance
+envenomation resulting in positive regulation of platelet aggregation in other organism
+pedophilia
+personality
+expressive language disorder
+substance-induced sexual dysfunction
+circadian regulation of heart rate
+consciousness of the body
+envenomation resulting in positive regulation of argininosuccinate synthase activity in other organism
+sex addiction
+prognosis
+prosopagnosia
+continuant fiat boundary
+male courtship behavior, orientation prior to leg tapping and wing vibration
+mental disposition
+instrumental aggressive behavior
+envenomation resulting in modulation of mast cell degranulation in other organism
+brief psychotic disorder
+health care encounter
+stereotypic movement disorder
+rumination disorder
+personality trait
+autism spectrum disorder
+envenomation resulting in cytolysis in other organism
+transient tic disorder
+nonassociative learning
+intersubjectivity
+capability
+drug psychosis
+diagnosis of mental disease
+envenomation resulting in modulation of cell migration in other organism
+locomotor rhythm
+independent continuant
+process
+one-dimensional spatial region
+partial remission
+male courtship behavior, tapping to detect pheromone
+prophylactic treatment
+envenomation resulting in positive regulation of vasoactive intestinal polypeptide receptor activity in other organism
+psychologic vaginismus
+anhedonia
+cocaine dependence
+substance-induced anxiety disorder
+finger agnosia
+angiotensin-mediated drinking behavior
+cocaine bugs
+patient symptom report
+time intentional modality
+exploration behavior
+envenomation resulting in negative regulation of cell migration in other organism
+reproductive behavior
+major depressive episode
+one-dimensional temporal region
+locomotory behavior
+mass madness
+binge-eating disorder
+associative learning
+Capgras syndrome
+envenomation resulting in fibrinogenolysis in other organism
+gait apraxia
+data about an ontology part
+dyscalculia
+turning behavior involved in mating
+neuroticism
+post-mating behavior
+larval locomotory behavior
+cancer process
+object aggregate
+bestiality
+disposition
+hospital-acquired infection
+introversion
+tactile agnosia
+learning or memory
+vascular dementia
+recovered from disease
+paternal behavior
+hospitalization
+multi-organism behavior
+planning
+congenital disorder
+paranoia
+visual behavior
+behavioral response to nicotine
+caffeine intoxication
+intellectual disability
+obsessive-compulsive personality disorder
+therapeutic procedure
+hyperarousal
+anergia
+form agnosia
+foraging behavior by probing substrate
+symptom
+delayed sleep-phase syndrome
+mental capability
+manifestation of a mental disease
+pervasive developmental disorder
+pattern orientation
+astereognosia
+anosognosia
+infection
+behavioral defense response
+atypical depressive disorder
+addiction to use of a sunbed
+combat disorder
+hallucinogen dependence
+opiate dependence
+disease prophylaxis
+complete remission
+alcohol abuse
+attention deficit hyperactivity disorder
+adhd
+gad
+add
+aspd
+
+process profile
+rhythmic behavior
+determining orientation
+REM sleep behavior disorder
+sleep apnea
+exclusion subset ontology module
+envenomation resulting in positive regulation of complement activation, classical pathway in other organism
+predisposition to disease of type X
+infectious disease process
+drug-induced mental disorder
+circadian persistence
+envenomation resulting in modulation of complement activation, lectin pathway in other organism
+REM sleep behaviour disorder
+hallucinogen abuse
+chronic stress
+acquired genetic disease
+image finding
+drug induced congenital malformation
+solid organ transplant
+writing disorder
+eclosion rhythm
+envenomation resulting in negative regulation of blood coagulation in other organism
+allergic disease process
+envenomation resulting in pore formation in membrane of other organism
+circadian period
+cyclothymic disorder
+learning disability
+object
+envenomation resulting in negative regulation of complement activation, lectin pathway in other organism
+AIDS phobia
+dysgraphia
+obsolete_sign
+cancer progression stage
+asymptomatic
+a memory
+developmental disorder of mental health
+territorial aggressive behavior
+pain disorder
+semantic agnosia
+adult feeding behavior
+visual problem solving behavior
+long-term memory
+clinical manifestation of a disease
+Munchausen by proxy
+autotopagnosia
+visual agnosia
+material entity
+circadian regulation of systemic arterial blood pressure
+exhibitionism
+problem solving behaviour
+bodily disposition
+realizable entity
+three-dimensional spatial region
+maternal aggressive behavior
+avoidant personality disorder
+adult locomotory behavior
+clinical history
+health care process assay
+follow-up health care encounter
+envenomation resulting in hemolysis in other organism
+spatial region
+impulse control disorder
+main release ontology module
+generated ontology module
+sleep disorder
+delusional disorder
+DbXref
+panic disorder
+anesthesia-resistant memory
+transfusion
+cannabis abuse
+constitutional genetic disease
+envenomation resulting in positive regulation of blood pressure in other organism
+anorgasmia
+specific developmental disorder
+simultanagnosia
+Kleine-Levin syndrome
+positive regulation of female receptivity, post-mating
+preclinical manifestation of a disease
+data item
+visual learning
+cancer progression stage 0
+onset
+capability to read music
+behavioral response to nutrient
+envenomation resulting in fibrinolysis in other organism
+reading disorder
+clinical picture
+health care process biomaterial transformation
+transplantation
+congenital infection
+imagination
+circadian sleep/wake cycle, sleep
+extraversion
+aphasia
+visual verbal agnosia
+envenomation resulting in negative regulation of complement activation, alternative pathway in other organism
+injection of substance into other organism during feeding on blood of other organism
+binge eating
+positive regulation of female receptivity
+relational quality
+oppositional defiant disorder
+circadian sleep/wake cycle, REM sleep
+radiation therapy procedure
+human being
+conditioned place preference
+auditory behavior
+phonagnosia
+barbiturate dependence
+premenstrual syndrome
+motor learning
+cancer progression stage I
+envenomation resulting in negative regulation of voltage-gated calcium channel activity in other organism
+mental functioning related anatomical structure
+envenomation resulting in positive regulation of acid-sensing ion channel activity in other organism
+male courtship behavior, proboscis-mediated licking
+bipolar ll disorder
+maternal behavior
+obsession
+obsolescence reason specification
+physical examination
+non-linguistic communication
+higher order consciousness
+two-dimensional continuant fiat boundary
+capability to play piano
+feeding behavior
+antidepressant type abuse
+mutism
+dissociative amnesia
+autistic disorder
+function
+envenomation resulting in negative regulation of acid-sensing ion channel activity in other organism
+Lewy body dementia
+disposition to be agent of mental process
+kleptomania
+vocalization behavior
+language disorder
+somatoform disorder
+capability to play violin
+syndromic intellectual disability
+reduction of food intake in response to dietary excess
+mental imagery
+realization
+envenomation resulting in damage of muscle extracellular matrix in other organism
+depersonalization disorder
+flight behavior
+agreeableness
+envenomation resulting in modulation of blood coagulation in other organism
+intermittent explosive disorder
+proprioception
+spoken communication
+mania
+pathological bodily process
+dissociation
+envenomation resulting in positive regulation of blood coagulation in other organism
+Asperger syndrome
+envenomation resulting in induction of edema in other organism
+phobic disorder
+enuresis
+pathological derivation
+curation status specification
+swimming behavior
+insomnia
+irascibility
+envenomation resulting in myocyte killing in other organism
+short-term memory
+transient disease course
+dissociative disorder
+Renpenning syndrome
+tic disorder
+import ontology module
+MFOMD_0000038
+non-syndromic intellectual disability
+ideomotor apraxia
+behavioral response to formalin induced pain
+configuration
+medium-term memory
+schizoid personality disorder
+pathological transformation
+optomotor response
+cocaine abuse
+fixation
+capturing prey
+bridge ontology module
+template generated ontology module
+compulsion
+sign-language communication
+conversion disorder
+conditioned taste aversion
+envenomation resulting in plasminogen activation in other organism
+GO_0007600
+Stockholm syndrome
+cognitive representation
+chemosensory jump behavior
+schizophreniform disorder
+articulation disorder
+capturing behaviour
+physical basis
+facial expression communication
+circadian sleep/wake cycle, wakefulness
+mood swing
+behavioral fear response
+capability to speak
+subliminal process
+learned vocalization behavior
+post-mating oviposition
+alcohol-related neurodevelopmental disorder
+treatment
+mental disease course
+taxonomic bridge ontology module
+envenomation resulting in negative regulation of calcium channel activity in other organism
+recurrent hypersomnia
+larval burrowing behavior
+chemosensory behavior
+nominal aphasia
+intentionality
+pharyngeal pumping
+anxiety
+dissociative fugue
+disease course
+mixed receptive-expressive language disorder
+language problem solving behavior
+agoraphobia
+specific language impairment
+circadian sleep/wake cycle
+transsexualism
+continuant
+encopresis
+envenomation resulting in positive regulation of complement activation, alternative pathway in other organism
+pathological formation
+acute disease course
+Subset
+female courtship behavior
+apprehension
+bodily quality
+suicidal behavior
+auditory consciousness
+male courtship behavior, veined wing vibration
+envenomation resulting in depletion of circulating fibrinogen in other organism
+role
+entity
+repression
+circadian mating behavior
+organism population
+_undefined primitive term
+withdrawal disorder
+social behavior
+envenomation resulting in modulation of glucagon-like peptide receptor 1 activity in other organism
+dishabituation
+envenomation resulting in modulation of ion channel activity in other organism
+alcohol-related birth defect
+disorientation
+process boundary
+depressed mood episode
+tactile consciousness
+negative regulation of female receptivity
+male courtship behavior
+pathological mental process
+vasculogenic impotence
+neonatal abstinence syndrome
+craving (withdrawal)
+inflammatory process
+courtship behavior
+envenomation resulting in positive regulation of cell migration in other organism
+larval walking behavior
+tangentiality in speech
+mental process
+fiat object part
+envenomation resulting in positive regulation of voltage-gated sodium channel activity in other organism
+emergency department encounter
+mating plug formation
+envenomation resulting in modification of morphology or physiology of other organism
+catatonic schizophrenia
+planned process
+single layer subset ontology module
+envenomation resulting in muscle damage in other organism
+aggressive behavior
+SynonymType
+envenomation resulting in modulation of vasoactive intestinal polypeptide receptor activity in other organism
+defense mechanism
+delusion
+olfactory behavior
+pain
+olfactory consciousness
+anxiety disorder
+assaultive behavior
+flashback
+interpersonal process
+thinking with language
+derealization
+envenomation resulting in modulation of transmission of nerve impulse in other organism
+syndrome
+homicidal ideations
+perception
+residual schizophrenia
+consciousness of self
+incoherence
+hypomanic mood episode
+schizoaffective disorder
+endogenous depression
+etiological process
+envenomation resulting in zymogen activation in other organism
+thought blocking
+preference
+primary sleep disorder: parasomnia
+primary sleep disorder: dyssomnia
+female mating behavior
+capability to understand language
+grooming behavior
+reaction formation
+delirium
+speech disorder
+acute stress disorder
+envenomation resulting in occlusion of the pore of voltage-gated potassium channel in other organism
+magical thinking
+somatization disorder
+hallucination
+oviposition
+immaterial entity
+phobia
+central sleep apnea
+mood disorder
+stupor
+attending
+paramnsesia
+mental counting
+disordered thinking
+separation anxiety disorder
+health care process data transformation
+fetal alcohol spectrum disorder
+voyeurism
+disease stage
+capability to read
+depersonalization
+optokinetic behavior
+larval wandering behavior
+operant conditioning
+undifferentiated schizophrenia
+immunotherapy procedure
+morphine dependence
+disorientation
+mirror agnosia
+inpatient encounter
+akinesia
+perseveration
+full-blown manic mood episode
+linguistic communication
+akinetopsia
+neurotic disorder
+flying phobia
+flat affect
+diagnostic process
+parental behavior
+Synonym
+sexual pain disorder
+envenomation resulting in modulation of calcium channel activity in other organism
+apperceptive agnosia
+flush prey
+vocal learning
+gestural communication
+consciousness of time
+general adaptation syndrome, behavioral process
+envenomation resulting in modulation of platelet aggregation in other organism
+echolalia
+behavioral response to water deprivation
+predatory behavior
+catatonic behaviour
+oral incubation
+transvestism
+occurrent
+envenomation resulting in modulation of acid-sensing ion channel activity in other organism
+grandiosity
+avolition
+injection of substance in to other organism
+post-traumatic stress disorder
+undoing
+retrograde amnesia
+displacement
+intelligence
+ontology module
+external import ontology module
+behavior
+psychotic disorder
+nervousness
+nicotine dependence
+autoimmune disease process
+physical therapy procedure
+manifestation of a disease
+envenomation resulting in negative regulation of voltage-gated sodium channel activity in other organism
+paranoid personality disorder
+waxy flexibility (in catatonia)
+pain agnosia
+bruxism
+atypical autism
+apraxia
+time agnosia
+drinking behavior
+narcissistic personality disorder
+circadian behavior
+outpatient encounter
+behavioral response to wounding
+somnolence
+visual consciousness
+personality disorder
+orgasmic disorder
+imitative learning
+relapse
+antisocial personality disorder
+adult behavior
+habituation
+mathematical problem solving behavior
+affective flattening
+chemotherapy procedure
+envenomation resulting in modulation of receptor activity in other organism
+regression
+dementia
+hyperactivity
+stalk prey
+observational learning
+smelling
+integrative agnosia
+envenomation resulting in negative regulation of heart rate of other organism
+anterograde amnesia
+flight of ideas
+alogia
+one-dimensional continuant fiat boundary
+envenomation resulting in negative regulation of platelet aggregation in other organism
+orientation
+directive information entity
+learned vocalization behavior or vocal learning
+touching
+derailment
+disorganized schizophrenia
+envenomation resulting in positive regulation of mast cell degranulation in other organism
+infectious disorder
+envenomation resulting in positive regulation of signal transduction in other organism
+remission
+clinical data item
+circadian sleep/wake cycle, non-REM sleep
+drug dependence
+consciousness
+circadian phase
+topographical agnosia
+associative agnosia
+behavioral response to pain
+sexual disorder
+envenomation resulting in modulation of complement activation in other organism
+clinical phenotype
+cancer progression stage II
+sexual arousal disorder
+communication
+postpartum depression
+seasonal affective disorder
+advanced sleep phase syndrome
+temporal region
+construct capturing device
+remembering
+laboratory finding
+hearing
+generically dependent continuant
+premature ejaculation
+alcohol dependence
+turning behavior
+belief
+consciousness of space
+affective representation
+restlessness
+zero-dimensional spatial region
+site
+alertness
+behavioral response to ethanol
+circadian temperature homeostasis
+occupational dysfunction
+Rett syndrome
+pyromania
+psychomotor behavior
+thought disorder (TD)
+larval turning behavior
+envenomation resulting in slowing of activation kinetics of voltage-gated potassium channel in other organism
+libido
+speech disorder
+projection
+response to hermaphrodite contact
+routine health care encounter
+processual sign
+disease
+clinical finding
+innate vocalization behavior
+sexual desire disorder
+verbal auditory agnosia
+regulation of female receptivity
+paraphilia disorder
+obstructive sleep apnea
+quality
+congenital process
+constitutional genetic disorder
+mental depression
+nosophobia
+transient global amnesia
+amphetamine abuse
+envenomation resulting in modulation of blood pressure in other organism
+seeing
+regulation of female receptivity, post-mating
+envenomation resulting in positive regulation of G-protein coupled receptor activity in other organism
+suckling behavior
+preclinical finding
+nociception
+envenomation resulting in negative regulation of voltage-gated potassium channel activity in other organism
+editors ontology module
+host-seeking behavior
+delusion of persecution
+hypoactive sexual desire disorder
+factitious disorder
+cancerophobia
+eating disorder
+acute onset
+envenomation resulting in positive regulation of glucagon-like peptide receptor 1 activity in other organism
+borderline personality disorder
+social emotional agnosia
+adult foraging behavior
+color agnosia
+substance-induced psychosis
+base ontology module
+species subset ontology module
+cognitive disorder
+acquired genetic disorder
+opioid abuse
+Definition
+mating behavior
+retention
+envenomation resulting in modulation of voltage-gated sodium channel activity in other organism
+history
+homeostasis
+qualitative sign
+dependent personality disorder
+alexia
+agnosia
+eating behavior
+pathological gambling
+conduct disorder
+rationalization
+phenotype
+pathological physical configuration
+progression stage
+envenomation resulting in negative regulation of complement activation, classical pathway in other organism
+drowsiness
+body dysmorphic disorder
+barbiturate abuse
+rambling
+mechanosensory behavior
+fetishism
+cognitive process
+catatonic posturing
+major depressive disorder
+envenomation resulting in modulation of signal transduction in other organism
+melancholia
+bodily process
+male courtship behavior, veined wing generated song production
+reasoned ontology module
+wanting
+zero-dimensional continuant fiat boundary
+jump response
+thermosensory behavior
+foraging behavior
+fear-induced aggressive behavior
+motor behavior
+adjustment disorder
+negative regulation of female receptivity, post-mating
+genetic predisposition to disease of type X
+envenomation resulting in negative regulation of high voltage-gated calcium channel activity in other organism
+amnestic disorder
+schizophrenia
+schizotypal personality disorder
+Kluver-Bucy syndrome
+psychosis
+tasting
+chase prey
+genetic disorder
+chronic disease course
+walking behavior
+adult walking behavior
+animal phobia
+representation
+sexual dysfunction
+irritable aggressive behavior
+envenomation resulting in negative regulation of low voltage-gated calcium channel activity in other organism
+rapid eye movement sleep
+dyslexia
+specifically dependent continuant
+abnormal homeostasis
+mental quality
+neoplasm
+two-dimensional spatial region
+disorder
+disease phenotype
+cancer progression stage III
+larval foraging behavior
+intentional modality
+dysthymic disorder
+behavioral response to acetic acid induced pain
+pathological invasion
+progressive disease course
+mixed episode
+substance abuse
+behavioral response to ether
+heroin dependence
+direct consciousness
+ontology module subsetted by OWL profile
+agoraphobia
+ontology module subsetted by expressivity
+subset ontology module
+manic episode
+vigilance
+neurocirculatory asthenia
+facebook addiction
+envenomation resulting in modulation of complement activation, alternative pathway in other organism
+fetal alcohol syndrome
+clinical history taking
+normal homeostasis
+medication role
+agraphia
+envenomation resulting in modulation of voltage-gated potassium channel activity in other organism
+attachment
+envenomation resulting in blood vessel extracellular matrix damage, causing hemorrhagic damage in other organism
+diagnosis
+clinical laboratory test
+social phobia
+behavioral response to cocaine
+denotator type
+obo basic subset ontology module
+orgasm
+daydreaming
+interpersonal behavior
+envenomation resulting in impairment of hemostasis in other organism
+Gilles de la Tourette syndrome
+vital sign
+epigenetic disorder
+cancer progression stage IV
+gender identity disorder
+salt aversion
+histrionic personality disorder
+generalized anxiety disorder
+irritable aggressive behavior
+multi-organism reproductive behavior
+substance dependence
+Alzheimer's disease
+zero-dimensional temporal region
+physical sign
+tissue disorder
+phencyclidine abuse
+male courtship behavior, veined wing extension
+envenomation resulting in negative regulation of blood pressure in other organism
+extended organism
+subacute delirium
+substance-induced sleep disorder
+mental disorder
+internet gaming addiction
+partial fetal alcohol syndrome
+non-specific X-linked mental retardation
+bipolar I disorder
+envenomation resulting in modulation of sensory perception of pain in other organism
+musical capability
+abstinence syndrome
+thinking
+envenomation resulting in modulation of apoptotic process in other organism
+mental calculation
+impotence
+cannabis dependence
+alexithymia
+mating behavior, sex discrimination
+pathological anatomical structure
+vulval location
+protention
+judging
+learning
+premenstrual dysphoric disorder
+envenomation resulting in modulation of complement activation, classical pathway in other organism
+crying behavior
+suicide
+periodic limb movement disorder
+bulimia nervosa
+proboscis extension reflex
+spicule insertion
+non-rapid eye movement sleep behavior
+determining gender
+olfactory learning
+inter-male aggressive behavior
+conscientiousness
+behavioral response to chemical pain
+psychosexual disorder
+memory
+shopping addiction
+spatiotemporal region
+normal value
+convalescence
+locomotory exploration behavior
+addiction disorder
+chronic tic disorder
+bdd
+ad
+crsd
+mdd
+nes
+ednos
+cd
+ocd
+odd
+ppd
+pted
+ptsd
+sza
+SAD
+spd
+addm
+apa
+asd
+aud
+ba
+BD
+cd
+cpt
+gao
+mj
