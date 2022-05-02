@@ -1291,6 +1291,7 @@ class BartForConditionalGeneration(BartPretrainedModel):
     def forward(
         self,
         input_ids=None,
+        subgraph=None,
         attention_mask=None,
         decoder_input_ids=None,
         decoder_attention_mask=None,
@@ -1315,6 +1316,7 @@ class BartForConditionalGeneration(BartPretrainedModel):
 
         Returns:
         """
+        import pdb;pdb.set_trace()
         return_dict = return_dict if return_dict is not None else self.config.use_return_dict
 
         if labels is not None:

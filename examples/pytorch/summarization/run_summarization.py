@@ -20,9 +20,11 @@ Fine-tuning the library models for sequence to sequence.
 
 import logging
 import os
+import pickle
 import sys
 from dataclasses import dataclass, field
 from typing import Optional
+from datasets import Dataset
 
 import datasets
 import nltk  # Here to have a nice missing dependency error message early on
@@ -49,6 +51,13 @@ from transformers.file_utils import is_offline_mode
 from transformers.trainer_utils import get_last_checkpoint
 from transformers.utils import check_min_version
 from transformers.utils.versions import require_version
+graph_data_train = pickle.load(open(f'/disk1/sajad/gov-reports/graph/splits/train.graph.adj.pk', mode='rb'))
+graph_data_val = pickle.load(open(f'/disk1/sajad/gov-reports/graph/splits/dev.graph.adj.pk', mode='rb'))
+graph_data_test = pickle.load(open(f'/disk1/sajad/gov-reports/graph/splits/test.graph.adj.pk', mode='rb'))
+
+# sort on ids
+# graph_data = sorted(graph_data.items(), key=lambda x:int(x[0].split('-')[-1]))
+# os.environ['TRANSFORMERS_CACHE'] = '/disk1/sajad/.cache/huggignface'
 
 
 # Will error if the minimal version of Transformers is not installed. Remove at your own risks.
@@ -92,7 +101,7 @@ class ModelArguments:
         metadata={"help": "Where to store the pretrained models downloaded from huggingface.co"},
     )
     use_fast_tokenizer: bool = field(
-        default=True,
+        default=False,
         metadata={"help": "Whether to use one of the fast tokenizer (backed by the tokenizers library) or not."},
     )
     model_revision: str = field(
@@ -161,7 +170,7 @@ class DataTrainingArguments:
         metadata={"help": "The number of processes to use for the preprocessing."},
     )
     max_source_length: Optional[int] = field(
-        default=1024,
+        default=8192,
         metadata={
             "help": "The maximum total input sequence length after tokenization. Sequences longer "
             "than this will be truncated, sequences shorter will be padded."
@@ -184,7 +193,7 @@ class DataTrainingArguments:
         },
     )
     pad_to_max_length: bool = field(
-        default=False,
+        default=True,
         metadata={
             "help": "Whether to pad all samples to model maximum sentence length. "
             "If False, will pad the samples dynamically when batching to the maximum length in the batch. More "
@@ -387,12 +396,12 @@ def main():
     )
 
     # model.config.num_beams = 4
-    model.config.max_length = 256
-    model.config.min_length = 25
+    model.config.max_length = 512
+    model.config.min_length = 250
     # model.config.length_penalty = 2.0
     model.config.gradient_checkpointing = False
     model.config.early_stopping = False
-    # model.config.no_repeat_ngram_size = 3
+    model.config.no_repeat_ngram_size = 3
 
     model.resize_token_embeddings(len(tokenizer))
 
@@ -482,56 +491,32 @@ def main():
             f"`{model.__class__.__name__}`. This will lead to loss being calculated twice and will take up more memory"
         )
 
-    def preprocess_function(examples):
+    def preprocess_function_train(examples):
         # remove pairs where at least one record is None
 
-        # inputs, targets = [], []
-        # for i in range(len(examples[text_column])):
-        #     if examples[text_column][i] is not None and examples[summary_column][i] is not None:
-        #         inputs.append(examples[text_column][i])
-        #         targets.append(examples[summary_column][i])
-        #
-        # inputs = [prefix + inp for inp in inputs]
-        # model_inputs = tokenizer(inputs, max_length=data_args.max_source_length, padding=True, truncation=True)
-        #
-        # # Setup the tokenizer for targets
-        # with tokenizer.as_target_tokenizer():
-        #     labels = tokenizer(targets, max_length=max_target_length, padding=True, truncation=True)
-        #
-        # # If we are padding here, replace all tokenizer.pad_token_id in the labels by -100 when we want to ignore
-        # # padding in the loss.
-        # if padding == "max_length" and data_args.ignore_pad_token_for_loss:
-        #     labels["input_ids"] = [
-        #         [(l if l != tokenizer.pad_token_id else -100) for l in label] for label in labels["input_ids"]
-        #     ]
-        #
-        # model_inputs["attention_mask"] = model_inputs.attention_mask
-        #
-        # # create 0 global_attention_mask lists
-        # model_inputs["global_attention_mask"] = len(model_inputs["input_ids"]) * [
-        #     [0 for _ in range(len(model_inputs["input_ids"][0]))]
-        # ]
-        #
-        # # since above lists are references, the following line changes the 0 index for all samples
-        # model_inputs["global_attention_mask"][0][0] = 1
-        #
-        # model_inputs["labels"] = labels["input_ids"]
-        # return model_inputs
+        # if 'train' in examples['doc_id'][0]:
+        #     import pdb;
+        #     pdb.set_trace()
 
-
-        ########### FOR BART #############
-        inputs, targets = [], []
+        inputs, targets, sub_graphs, ids = [], [], [], []
         for i in range(len(examples[text_column])):
             if examples[text_column][i] is not None and examples[summary_column][i] is not None:
+                # if examples['doc_id'][i] in graph_data.keys():
                 inputs.append(examples[text_column][i])
                 targets.append(examples[summary_column][i])
+                sub_graphs.append(graph_data_train[examples['doc_id'][i]])
+                ids.append(examples['doc_id'][i])
+                # print(examples['doc_id'][i])
+                # if examples['doc_id'][i] == 'C':
+                #     print('here')
+                #     import pdb;pdb.set_trace()
 
         inputs = [prefix + inp for inp in inputs]
-        model_inputs = tokenizer(inputs, max_length=data_args.max_source_length, padding=padding, truncation=True)
+        model_inputs = tokenizer(inputs, max_length=data_args.max_source_length, padding=padding, truncation=True, sub_graphs=sub_graphs, ids=ids)
 
         # Setup the tokenizer for targets
         with tokenizer.as_target_tokenizer():
-            labels = tokenizer(targets, max_length=max_target_length, padding=padding, truncation=True)
+            labels = tokenizer(targets, max_length=max_target_length, padding=True, truncation=True)
 
         # If we are padding here, replace all tokenizer.pad_token_id in the labels by -100 when we want to ignore
         # padding in the loss.
@@ -540,18 +525,220 @@ def main():
                 [(l if l != tokenizer.pad_token_id else -100) for l in label] for label in labels["input_ids"]
             ]
 
+        model_inputs["attention_mask"] = model_inputs.attention_mask
+
+        # create 0 global_attention_mask lists
+        # model_inputs["global_attention_mask"] = len(model_inputs["input_ids"]) * [
+        #     [0 for _ in range(len(model_inputs["input_ids"][0]))]
+        # ]
+
+        # since above lists are references, the following line changes the 0 index for all samples
+        # model_inputs["global_attention_mask"][0][0] = 1
+
+        # create 0 global_attention_mask lists
+        # model_inputs["global_attention_mask"] = [
+        #     len(model_inputs["input_ids"][i]) * [0 for _ in range(len(model_inputs["input_ids"][i]))] for i in
+        #     range(len(examples[text_column]))
+        # ]
+
+        # since above lists are references, the following line changes the 0 index for all samples
+        # for i in range(len(examples[text_column])):
+        #     model_inputs["global_attention_mask"][i][0] = 1
+
         model_inputs["labels"] = labels["input_ids"]
         return model_inputs
+
+
+        ########### FOR BART #############
+        # inputs, targets, sub_graphs = [], [], []
+        # for i in range(len(examples[text_column])):
+        #     if examples[text_column][i] is not None and examples[summary_column][i] is not None:
+        #         if examples['doc_id'][i] in graph_data.keys():
+        #             inputs.append(examples[text_column][i])
+        #             print(len(examples[text_column][i].strip()))
+        #
+        #             targets.append(examples[summary_column][i])
+        #             sub_graphs.append(graph_data[examples['doc_id'][i]])
+        # inputs = [prefix + inp for inp in inputs]
+        # model_inputs = tokenizer(inputs, max_length=data_args.max_source_length, padding=padding, truncation=True, sub_graphs=sub_graphs)
+        #
+        #     # Setup the tokenizer for targets
+        # with tokenizer.as_target_tokenizer():
+        #     labels = tokenizer(targets, max_length=max_target_length, padding=padding, truncation=True)
+        #
+        # # If we are padding here, replace all tokenizer.pad_token_id in the labels by -100 when we want to ignore
+        # # padding in the loss.
+        # if padding == "max_length" and data_args.ignore_pad_token_for_loss:
+        #     labels["input_ids"] = [
+        #         [(l if l != tokenizer.pad_token_id else -100) for l in label] for label in labels["input_ids"]
+        #     ]
+        #
+        # model_inputs["labels"] = labels["input_ids"]
+        # return model_inputs
+
+    def preprocess_function_val(examples):
+        # remove pairs where at least one record is None
+
+        # if 'train' in examples['doc_id'][0]:
+        #     import pdb;
+        #     pdb.set_trace()
+
+        inputs, targets, sub_graphs, ids = [], [], [], []
+        for i in range(len(examples[text_column])):
+            if examples[text_column][i] is not None and examples[summary_column][i] is not None:
+                # if examples['doc_id'][i] in graph_data.keys():
+                inputs.append(examples[text_column][i])
+                targets.append(examples[summary_column][i])
+                sub_graphs.append(graph_data_val[examples['doc_id'][i]])
+                ids.append(examples['doc_id'][i])
+                # print(examples['doc_id'][i])
+                # if examples['doc_id'][i] == 'C':
+                #     print('here')
+                #     import pdb;pdb.set_trace()
+        inputs = [prefix + inp for inp in inputs]
+        model_inputs = tokenizer(inputs, max_length=data_args.max_source_length, padding=padding, truncation=True, sub_graphs=sub_graphs, ids=ids)
+
+        # Setup the tokenizer for targets
+        with tokenizer.as_target_tokenizer():
+            labels = tokenizer(targets, max_length=max_target_length, padding=True, truncation=True)
+
+        # If we are padding here, replace all tokenizer.pad_token_id in the labels by -100 when we want to ignore
+        # padding in the loss.
+        if padding == "max_length" and data_args.ignore_pad_token_for_loss:
+            labels["input_ids"] = [
+                [(l if l != tokenizer.pad_token_id else -100) for l in label] for label in labels["input_ids"]
+            ]
+
+        model_inputs["attention_mask"] = model_inputs.attention_mask
+
+        # create 0 global_attention_mask lists
+        # model_inputs["global_attention_mask"] = [len(model_inputs["input_ids"][i]) * [0 for _ in range(len(model_inputs["input_ids"][i]))] for i in range(len(examples[text_column]))]
+
+        # since above lists are references, the following line changes the 0 index for all samples
+        # for i in range(len(examples[text_column])):
+        #     model_inputs["global_attention_mask"][i][0] = 1
+
+        model_inputs["labels"] = labels["input_ids"]
+        return model_inputs
+
+
+        ########### FOR BART #############
+        # inputs, targets, sub_graphs = [], [], []
+        # for i in range(len(examples[text_column])):
+        #     if examples[text_column][i] is not None and examples[summary_column][i] is not None:
+        #         if examples['doc_id'][i] in graph_data.keys():
+        #             inputs.append(examples[text_column][i])
+        #             print(len(examples[text_column][i].strip()))
+        #
+        #             targets.append(examples[summary_column][i])
+        #             sub_graphs.append(graph_data[examples['doc_id'][i]])
+        # inputs = [prefix + inp for inp in inputs]
+        # model_inputs = tokenizer(inputs, max_length=data_args.max_source_length, padding=padding, truncation=True, sub_graphs=sub_graphs)
+        #
+        #     # Setup the tokenizer for targets
+        # with tokenizer.as_target_tokenizer():
+        #     labels = tokenizer(targets, max_length=max_target_length, padding=padding, truncation=True)
+        #
+        # # If we are padding here, replace all tokenizer.pad_token_id in the labels by -100 when we want to ignore
+        # # padding in the loss.
+        # if padding == "max_length" and data_args.ignore_pad_token_for_loss:
+        #     labels["input_ids"] = [
+        #         [(l if l != tokenizer.pad_token_id else -100) for l in label] for label in labels["input_ids"]
+        #     ]
+        #
+        # model_inputs["labels"] = labels["input_ids"]
+        # return model_inputs
+
+    def preprocess_function_test(examples):
+        # remove pairs where at least one record is None
+
+        # if 'train' in examples['doc_id'][0]:
+        #     import pdb;
+        #     pdb.set_trace()
+
+        inputs, targets, sub_graphs, ids = [], [], [], []
+        for i in range(len(examples[text_column])):
+            if examples[text_column][i] is not None and examples[summary_column][i] is not None:
+                # if examples['doc_id'][i] in graph_data.keys():
+                inputs.append(examples[text_column][i])
+                targets.append(examples[summary_column][i])
+                sub_graphs.append(graph_data_test[examples['doc_id'][i]])
+                ids.append(examples['doc_id'][i])
+                # print(examples['doc_id'][i])
+                # if examples['doc_id'][i] == 'C':
+                #     print('here')
+                #     import pdb;pdb.set_trace()
+        inputs = [prefix + inp for inp in inputs]
+        model_inputs = tokenizer(inputs, max_length=data_args.max_source_length, padding=padding, truncation=True, sub_graphs=sub_graphs, ids=ids)
+
+        # Setup the tokenizer for targets
+        with tokenizer.as_target_tokenizer():
+            labels = tokenizer(targets, max_length=max_target_length, padding=True, truncation=True)
+
+        # If we are padding here, replace all tokenizer.pad_token_id in the labels by -100 when we want to ignore
+        # padding in the loss.
+        if padding == "max_length" and data_args.ignore_pad_token_for_loss:
+            labels["input_ids"] = [
+                [(l if l != tokenizer.pad_token_id else -100) for l in label] for label in labels["input_ids"]
+            ]
+
+        model_inputs["attention_mask"] = model_inputs.attention_mask
+
+        # create 0 global_attention_mask lists
+        # model_inputs["global_attention_mask"] = [len(model_inputs["input_ids"][i]) * [0 for _ in range(len(model_inputs["input_ids"][i]))] for i in range(len(examples[text_column]))]
+
+        # since above lists are references, the following line changes the 0 index for all samples
+        # for i in range(len(examples[text_column])):
+        #     model_inputs["global_attention_mask"][i][0] = 1
+
+        model_inputs["labels"] = labels["input_ids"]
+        return model_inputs
+
+
+        ########### FOR BART #############
+        # inputs, targets, sub_graphs = [], [], []
+        # for i in range(len(examples[text_column])):
+        #     if examples[text_column][i] is not None and examples[summary_column][i] is not None:
+        #         if examples['doc_id'][i] in graph_data.keys():
+        #             inputs.append(examples[text_column][i])
+        #             print(len(examples[text_column][i].strip()))
+        #
+        #             targets.append(examples[summary_column][i])
+        #             sub_graphs.append(graph_data[examples['doc_id'][i]])
+        # inputs = [prefix + inp for inp in inputs]
+        # model_inputs = tokenizer(inputs, max_length=data_args.max_source_length, padding=padding, truncation=True, sub_graphs=sub_graphs)
+        #
+        #     # Setup the tokenizer for targets
+        # with tokenizer.as_target_tokenizer():
+        #     labels = tokenizer(targets, max_length=max_target_length, padding=padding, truncation=True)
+        #
+        # # If we are padding here, replace all tokenizer.pad_token_id in the labels by -100 when we want to ignore
+        # # padding in the loss.
+        # if padding == "max_length" and data_args.ignore_pad_token_for_loss:
+        #     labels["input_ids"] = [
+        #         [(l if l != tokenizer.pad_token_id else -100) for l in label] for label in labels["input_ids"]
+        #     ]
+        #
+        # model_inputs["labels"] = labels["input_ids"]
+        # return model_inputs
+
+    ##########
 
     if training_args.do_train:
         if "train" not in raw_datasets:
             raise ValueError("--do_train requires a train dataset")
+
+        # graph_d = [g for gk, g in graph_data if 'train' in gk]
         train_dataset = raw_datasets["train"]
+
+        # train_dataset = train_dataset.map(add_feature, with_indices=True)
         if data_args.max_train_samples is not None:
             train_dataset = train_dataset.select(range(data_args.max_train_samples))
+
+
         with training_args.main_process_first(desc="train dataset map pre-processing"):
             train_dataset = train_dataset.map(
-                preprocess_function,
+                preprocess_function_train,
                 batched=True,
                 num_proc=data_args.preprocessing_num_workers,
                 remove_columns=column_names,
@@ -566,9 +753,11 @@ def main():
         eval_dataset = raw_datasets["validation"]
         if data_args.max_eval_samples is not None:
             eval_dataset = eval_dataset.select(range(data_args.max_eval_samples))
+
+        # import pdb;pdb.set_trace()
         with training_args.main_process_first(desc="validation dataset map pre-processing"):
             eval_dataset = eval_dataset.map(
-                preprocess_function,
+                preprocess_function_val,
                 batched=True,
                 num_proc=data_args.preprocessing_num_workers,
                 remove_columns=column_names,
@@ -577,6 +766,7 @@ def main():
             )
 
     if training_args.do_predict:
+
         max_target_length = data_args.val_max_target_length
         if "test" not in raw_datasets:
             raise ValueError("--do_predict requires a test dataset")
@@ -585,7 +775,7 @@ def main():
             predict_dataset = predict_dataset.select(range(data_args.max_predict_samples))
         with training_args.main_process_first(desc="prediction dataset map pre-processing"):
             predict_dataset = predict_dataset.map(
-                preprocess_function,
+                preprocess_function_test,
                 batched=True,
                 num_proc=data_args.preprocessing_num_workers,
                 remove_columns=column_names,

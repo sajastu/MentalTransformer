@@ -389,6 +389,7 @@ class GenerationMixin:
         """
         This function extracts the model-specific `inputs` for generation.
         """
+
         # 1. retrieve all kwargs that are non-None or non-model input related.
         # some encoder-decoder models have different names for model and encoder
         if (
@@ -497,6 +498,7 @@ class GenerationMixin:
 
         # 2. prepare encoder args and encoder kwargs from model kwargs
         irrelevant_prefix = ["decoder_", "cross_attn", "use_cache"]
+
         encoder_kwargs = {
             argument: value
             for argument, value in model_kwargs.items()
@@ -807,6 +809,7 @@ class GenerationMixin:
     def generate(
         self,
         inputs: Optional[torch.Tensor] = None,
+        subgraph= None,
         max_length: Optional[int] = None,
         min_length: Optional[int] = None,
         do_sample: Optional[bool] = None,
@@ -1044,6 +1047,7 @@ class GenerationMixin:
         >>> outputs = model.generate(input_ids=input_ids, max_length=20, do_sample=True, bad_words_ids=bad_words_ids)
         >>> print("Generated:", tokenizer.decode(outputs[0], skip_special_tokens=True))
         ```"""
+
         # 1. Set generation parameters if not already defined
         bos_token_id = bos_token_id if bos_token_id is not None else self.config.bos_token_id
         num_beams = num_beams if num_beams is not None else self.config.num_beams
@@ -1087,6 +1091,7 @@ class GenerationMixin:
         model_kwargs["output_attentions"] = output_attentions
         model_kwargs["output_hidden_states"] = output_hidden_states
         model_kwargs["use_cache"] = use_cache
+        model_kwargs["subgraph"] = subgraph
 
         accepts_attention_mask = "attention_mask" in set(inspect.signature(self.forward).parameters.keys())
         requires_attention_mask = "encoder_outputs" not in model_kwargs

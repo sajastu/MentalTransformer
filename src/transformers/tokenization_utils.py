@@ -678,6 +678,8 @@ class PreTrainedTokenizer(PreTrainedTokenizerBase):
         ],
         add_special_tokens: bool = True,
         padding_strategy: PaddingStrategy = PaddingStrategy.DO_NOT_PAD,
+        sub_graphs=None,
+        ids=None,
         truncation_strategy: TruncationStrategy = TruncationStrategy.DO_NOT_TRUNCATE,
         max_length: Optional[int] = None,
         stride: int = 0,
@@ -720,6 +722,7 @@ class PreTrainedTokenizer(PreTrainedTokenizerBase):
             )
 
         input_ids = []
+
         for ids_or_pair_ids in batch_text_or_text_pairs:
             if not isinstance(ids_or_pair_ids, (list, tuple)):
                 ids, pair_ids = ids_or_pair_ids, None
@@ -732,8 +735,12 @@ class PreTrainedTokenizer(PreTrainedTokenizerBase):
             second_ids = get_input_ids(pair_ids) if pair_ids is not None else None
             input_ids.append((first_ids, second_ids))
 
+
+
         batch_outputs = self._batch_prepare_for_model(
             input_ids,
+            sub_graphs = sub_graphs,
+            ids = ids,
             add_special_tokens=add_special_tokens,
             padding_strategy=padding_strategy,
             truncation_strategy=truncation_strategy,
@@ -755,6 +762,8 @@ class PreTrainedTokenizer(PreTrainedTokenizerBase):
     def _batch_prepare_for_model(
         self,
         batch_ids_pairs: List[Union[PreTokenizedInputPair, Tuple[List[int], None]]],
+        sub_graphs = None,
+        ids = None,
         add_special_tokens: bool = True,
         padding_strategy: PaddingStrategy = PaddingStrategy.DO_NOT_PAD,
         truncation_strategy: TruncationStrategy = TruncationStrategy.DO_NOT_TRUNCATE,
@@ -779,10 +788,12 @@ class PreTrainedTokenizer(PreTrainedTokenizerBase):
         """
 
         batch_outputs = {}
-        for first_ids, second_ids in batch_ids_pairs:
+        for idx, (first_ids, second_ids) in enumerate(batch_ids_pairs):
             outputs = self.prepare_for_model(
                 first_ids,
                 second_ids,
+                sub_graph=sub_graphs[idx] if sub_graphs is not None else None,
+                id=ids[idx] if ids is not None else None,
                 add_special_tokens=add_special_tokens,
                 padding=PaddingStrategy.DO_NOT_PAD.value,  # we pad in batch afterward
                 truncation=truncation_strategy.value,
@@ -799,10 +810,12 @@ class PreTrainedTokenizer(PreTrainedTokenizerBase):
                 verbose=verbose,
             )
 
+
             for key, value in outputs.items():
                 if key not in batch_outputs:
                     batch_outputs[key] = []
                 batch_outputs[key].append(value)
+
 
         batch_outputs = self.pad(
             batch_outputs,
@@ -841,7 +854,7 @@ class PreTrainedTokenizer(PreTrainedTokenizerBase):
         return (text, kwargs)
 
     def get_special_tokens_mask(
-        self, token_ids_0: List, token_ids_1: Optional[List] = None, already_has_special_tokens: bool = False
+        self, token_ra_0: List, token_ids_1: Optional[List] = None, already_has_special_tokens: bool = False
     ) -> List[int]:
         """
         Retrieves sequence ids from a token list that has no special tokens added. This method is called when adding

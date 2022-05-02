@@ -1077,7 +1077,7 @@ class Trainer:
                 # https://github.com/huggingface/transformers/pull/4659#issuecomment-643356021
                 kwargs["find_unused_parameters"] = not model.is_gradient_checkpointing
             else:
-                kwargs["find_unused_parameters"] = True
+                kwargs["find_unused_parameters"] = False
 
             if self.args.ddp_bucket_cap_mb is not None:
                 kwargs["bucket_cap_mb"] = self.args.ddp_bucket_cap_mb

@@ -172,8 +172,10 @@ class Seq2SeqTrainer(Trainer):
         else:
             generation_inputs = inputs[self.model.main_input_name]
 
+
         generated_tokens = self.model.generate(
             generation_inputs,
+            subgraph=inputs['subgraph'],
             **gen_kwargs,
         )
         # in case the batch is shorter than max length, the output should be padded

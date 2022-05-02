@@ -19,7 +19,9 @@ of output with special method for the Fast tokenizers)
 """
 
 import copy
+import itertools
 import json
+import torch
 import os
 import re
 import warnings
@@ -32,6 +34,7 @@ import numpy as np
 from packaging import version
 
 from requests import HTTPError
+from tqdm import tqdm
 
 from . import __version__
 from .dynamic_module_utils import custom_object_save
@@ -700,6 +703,14 @@ class BatchEncoding(UserDict):
 
         # Do the tensor conversion in batch
         for key, value in self.items():
+            if key == 'subgraph':
+                for ix, v in enumerate(value):
+                    for key_attr, vector in v.items():
+                        value[ix][key_attr] = as_tensor(vector)
+                self[key] = value
+
+                continue
+
             try:
                 if prepend_batch_axis:
                     value = [value]
@@ -2412,6 +2423,7 @@ class PreTrainedTokenizerBase(SpecialTokensMixin, PushToHubMixin):
                 (pretokenized string). If the sequences are provided as list of strings (pretokenized), you must set
                 `is_split_into_words=True` (to lift the ambiguity with a batch of sequences).
         """
+        self.load_resources()
         # Input type checking for clearer error
         def _is_valid_text_input(t):
             if isinstance(t, str):
@@ -2460,7 +2472,7 @@ class PreTrainedTokenizerBase(SpecialTokensMixin, PushToHubMixin):
                     f"batch length of `text`: {len(text)} does not match batch length of `text_pair`: {len(text_pair)}."
                 )
             batch_text_or_text_pairs = list(zip(text, text_pair)) if text_pair is not None else text
-            return self.batch_encode_plus(
+            encoded_batch = self.batch_encode_plus(
                 batch_text_or_text_pairs=batch_text_or_text_pairs,
                 add_special_tokens=add_special_tokens,
                 padding=padding,
@@ -2479,6 +2491,9 @@ class PreTrainedTokenizerBase(SpecialTokensMixin, PushToHubMixin):
                 verbose=verbose,
                 **kwargs,
             )
+
+            return encoded_batch
+
         else:
             return self.encode_plus(
                 text=text,
@@ -2612,6 +2627,8 @@ class PreTrainedTokenizerBase(SpecialTokensMixin, PushToHubMixin):
         padding: Union[bool, str, PaddingStrategy] = False,
         truncation: Union[bool, str, TruncationStrategy] = False,
         max_length: Optional[int] = None,
+        sub_graphs = None,
+        ids = None,
         stride: int = 0,
         is_split_into_words: bool = False,
         pad_to_multiple_of: Optional[int] = None,
@@ -2640,7 +2657,6 @@ class PreTrainedTokenizerBase(SpecialTokensMixin, PushToHubMixin):
                 string/string-sequences/int-sequences or a list of pair of string/string-sequences/int-sequence (see
                 details in `encode_plus`).
         """
-
         # Backward compatibility for 'truncation_strategy', 'pad_to_max_length'
         padding_strategy, truncation_strategy, max_length, kwargs = self._get_padding_truncation_strategies(
             padding=padding,
@@ -2655,6 +2671,8 @@ class PreTrainedTokenizerBase(SpecialTokensMixin, PushToHubMixin):
             batch_text_or_text_pairs=batch_text_or_text_pairs,
             add_special_tokens=add_special_tokens,
             padding_strategy=padding_strategy,
+            sub_graphs=sub_graphs,
+            ids=ids,
             truncation_strategy=truncation_strategy,
             max_length=max_length,
             stride=stride,
@@ -2683,6 +2701,8 @@ class PreTrainedTokenizerBase(SpecialTokensMixin, PushToHubMixin):
         ],
         add_special_tokens: bool = True,
         padding_strategy: PaddingStrategy = PaddingStrategy.DO_NOT_PAD,
+        sub_graphs = None,
+        ids = None,
         truncation_strategy: TruncationStrategy = TruncationStrategy.DO_NOT_TRUNCATE,
         max_length: Optional[int] = None,
         stride: int = 0,
@@ -2776,12 +2796,15 @@ class PreTrainedTokenizerBase(SpecialTokensMixin, PushToHubMixin):
         if isinstance(encoded_inputs, (list, tuple)) and isinstance(encoded_inputs[0], (dict, BatchEncoding)):
             encoded_inputs = {key: [example[key] for example in encoded_inputs] for key in encoded_inputs[0].keys()}
 
+        # try:
         # The model's main input name, usually `input_ids`, has be passed for padding
         if self.model_input_names[0] not in encoded_inputs:
             raise ValueError(
                 "You should supply an encoding or a list of encodings to this method "
                 f"that includes {self.model_input_names[0]}, but you provided {list(encoded_inputs.keys())}"
             )
+        # except:
+        #     import pdb;pdb.set_trace()
 
         required_input = encoded_inputs[self.model_input_names[0]]
 
@@ -2901,11 +2924,196 @@ class PreTrainedTokenizerBase(SpecialTokensMixin, PushToHubMixin):
             return token_ids_0
         return token_ids_0 + token_ids_1
 
+    def load_resources(self, kg='cpnet'):
+        from .graph_data_prepartion.preprocess_utils import conceptnet
+
+        # Load the tokenizer
+        # try:
+        #     tokenizer_class = {'bert': BertTokenizer, 'xlnet': XLNetTokenizer, 'roberta': RobertaTokenizer, 'albert': AlbertTokenizer}.get(self.model_type)
+        # except:
+        #     tokenizer_class = {'bert': BertTokenizer, 'xlnet': XLNetTokenizer, 'roberta': RobertaTokenizer}.get(self.model_type)
+        # tokenizer = tokenizer_class.from_pretrained(self.model_name)
+        # self.tokenizer = tokenizer
+
+        if kg == "cpnet":
+            # Load cpnet
+            cpnet_vocab_path = "/disk1/sajad/gov-reports/cpnet/concept.txt"
+            with open(cpnet_vocab_path, "r", encoding="utf8") as fin:
+                self.id2concept = [w.strip() for w in fin]
+            self.concept2id = {w: i for i, w in enumerate(self.id2concept)}
+            self.id2relation = conceptnet.merged_relations
+        elif kg == "ddb":
+            cpnet_vocab_path = "/disk1/sajad/gov-reports/cpnet/concept.txt"
+            with open(cpnet_vocab_path, "r", encoding="utf8") as fin:
+                self.id2concept = [w.strip() for w in fin]
+            self.concept2id = {w: i for i, w in enumerate(self.id2concept)}
+            self.id2relation = [
+                'belongstothecategoryof',
+                'isacategory',
+                'maycause',
+                'isasubtypeof',
+                'isariskfactorof',
+                'isassociatedwith',
+                'maycontraindicate',
+                'interactswith',
+                'belongstothedrugfamilyof',
+                'child-parent',
+                'isavectorfor',
+                'mabeallelicwith',
+                'seealso',
+                'isaningradientof',
+                'mabeindicatedby'
+            ]
+        else:
+            raise ValueError("Invalid value for kg.")
+
+    def _prepare_subgraph(self, graph):
+        concepts_by_sents_list = []
+        context_node = 0
+        n_special_nodes = 1
+        cxt2qlinked_rel = 0
+        max_node_num = 2000
+        half_n_rel = len(self.id2relation) + 2
+        # if self.cxt_node_connects_all:
+        #     cxt2other_rel = half_n_rel
+        #     half_n_rel += 1
+
+        adj_concept_pairs = []
+        adj_concept_pairs.append(graph)
+
+        n_samples = len(adj_concept_pairs)  # one graph per instance
+        edge_index, edge_type = [], []
+        adj_lengths = torch.zeros((n_samples,), dtype=torch.long)
+        concept_ids = torch.full((n_samples, max_node_num), 1, dtype=torch.long)
+        node_type_ids = torch.full((n_samples, max_node_num), 2, dtype=torch.long)  # default 2: "other node"
+        node_scores = torch.zeros((n_samples, max_node_num, 1), dtype=torch.float)
+        special_nodes_mask = torch.zeros(n_samples, max_node_num, dtype=torch.bool)
+
+        adj_lengths_ori = adj_lengths.clone()
+
+
+        if not concepts_by_sents_list:
+            concepts_by_sents_list = itertools.repeat(None)
+
+        # for idx, (_data, cpts_by_sents) in tqdm(enumerate(zip(adj_concept_pairs, concepts_by_sents_list)), total=n_samples, desc='loading adj matrices'):
+        for idx, (_data, cpts_by_sents) in enumerate(zip(adj_concept_pairs, concepts_by_sents_list)):
+            adj, concepts, qm = _data['adj'], _data['concepts'], _data['sentence_mask']
+
+            # adj: e.g. <4233x249 (n_nodes*half_n_rels x n_nodes) sparse matrix of type '<class 'numpy.bool'>' with 2905 stored elements in COOrdinate format>
+            # concepts: np.array(num_nodes, ), where entry is concept id
+            # qm: np.array(num_nodes, ), where entry is True/False
+            # am: np.array(num_nodes, ), where entry is True/False
+            assert len(concepts) == len(set(concepts))
+            qam = qm
+            # sanity check: should be T,..,T,F,F,..F
+            assert qam[0] == True
+            F_start = False
+            for TF in qam:
+                if TF == False:
+                    F_start = True
+                else:
+                    assert F_start == False
+
+            assert n_special_nodes <= max_node_num
+            special_nodes_mask[idx, :n_special_nodes] = 1
+            num_concept = min(len(concepts) + n_special_nodes, max_node_num)
+            # this is the final number of nodes including contextnode but excluding PAD
+
+            adj_lengths_ori[idx] = len(concepts)
+            adj_lengths[idx] = num_concept
+
+            # Prepare nodes
+            concepts = concepts[:num_concept - n_special_nodes]
+            concept_ids[idx, n_special_nodes:num_concept] = torch.tensor(concepts + 1)
+            # To accomodate contextnode, original concept_ids incremented by 1
+            concept_ids[idx, 0] = context_node
+            # this is the "concept_id" for contextnode
+
+            # Prepare node types
+            node_type_ids[idx, 0] = 1  # context node
+            node_type_ids[idx, 1:n_special_nodes] = 3  # sent nodes
+            node_type_ids[idx, n_special_nodes:num_concept][
+                torch.tensor(qm, dtype=torch.bool)[:num_concept - n_special_nodes]] = 0
+
+            # Load adj
+            ij = torch.tensor(adj.row, dtype=torch.int64)  # (num_matrix_entries, ), where each entry is coordinate
+            k = torch.tensor(adj.col, dtype=torch.int64)  # (num_matrix_entries, ), where each entry is coordinate
+            n_node = adj.shape[1]
+            assert len(self.id2relation) == adj.shape[0] // n_node
+            i, j = ij // n_node, ij % n_node
+
+            # Prepare edges
+            i += 2;
+            j += 1;
+            k += 1  # **** increment coordinate by 1, rel_id by 2 ****
+            extra_i, extra_j, extra_k = [], [], []
+            for _coord, q_tf in enumerate(qm):
+                _new_coord = _coord + n_special_nodes
+                if _new_coord > num_concept:
+                    break
+                if q_tf:
+                    extra_i.append(cxt2qlinked_rel)  # rel from contextnode to question concept
+                    extra_j.append(0)  # contextnode coordinate
+                    extra_k.append(_new_coord)  # question concept coordinate
+                # elif self.cxt_node_connects_all:
+                #     extra_i.append(cxt2other_rel)  # rel from contextnode to other concept
+                #     extra_j.append(0)  # contextnode coordinate
+                #     extra_k.append(_new_coord)  # other concept coordinate
+
+
+            # half_n_rel += 2 #should be 19 now
+            if len(extra_i) > 0:
+                i = torch.cat([i, torch.tensor(extra_i)], dim=0)
+                j = torch.cat([j, torch.tensor(extra_j)], dim=0)
+                k = torch.cat([k, torch.tensor(extra_k)], dim=0)
+            ########################
+
+            mask = (j < max_node_num) & (k < max_node_num)
+            i, j, k = i[mask], j[mask], k[mask]
+            i, j, k = torch.cat((i, i + half_n_rel), 0), torch.cat((j, k), 0), torch.cat((k, j),
+                                                                                         0)  # add inverse relations
+            edge_index.append(torch.stack([j, k], dim=0))  # each entry is [2, E]
+            edge_type.append(i)  # each entry is [E, ]
+
+        # if not self.debug:
+        #     with open(cache_path, 'wb') as f:
+        #         pickle.dump(
+        #             [adj_lengths_ori, concept_ids, node_type_ids, node_scores, adj_lengths, edge_index, edge_type,
+        #              half_n_rel, special_nodes_mask], f)
+
+        ori_adj_mean = adj_lengths_ori.float().mean().item()
+        ori_adj_sigma = np.sqrt(((adj_lengths_ori.float() - ori_adj_mean) ** 2).mean().item())
+        # print('| ori_adj_len: mu {:.2f} sigma {:.2f} | adj_len: {:.2f} |'.format(ori_adj_mean, ori_adj_sigma,
+        #                                                                          adj_lengths.float().mean().item()) +
+        #       ' prune_rate： {:.2f} |'.format((adj_lengths_ori > adj_lengths).float().mean().item()) +
+        #       ' qc_num: {:.2f} | ac_num: {:.2f} |'.format((node_type_ids == 0).float().sum(1).mean().item(),
+        #                                                   (node_type_ids == 1).float().sum(1).mean().item()))
+
+        # edge_index = list(map(list, zip(*(iter( edge_index),) * 1)))  # list of size (n_questions, n_choices), where each entry is tensor[2, E] #this operation corresponds to .view(n_questions, n_choices)
+        # edge_type = list(map(list, zip(*(iter(edge_type),) * 1)))  # list of size (n_questions, n_choices), where each entry is tensor[E, ]
+        concept_ids, node_type_ids, node_scores, adj_lengths, special_nodes_mask = [x.view(-1, *x.size()[1:]) for x in (concept_ids, node_type_ids, node_scores, adj_lengths, special_nodes_mask)]
+
+
+
+        # concept_ids: (n_questions, num_choice, max_node_num)
+        # node_type_ids: (n_questions, num_choice, max_node_num)
+        # node_scores: (n_questions, num_choice, max_node_num)
+        # adj_lengths: (n_questions,　num_choice)
+
+        return {'concept_ids': concept_ids,
+                'node_type_ids': node_type_ids,
+                'node_scores': node_scores,
+                'adj_lengths': adj_lengths,
+                'special_nodes_mask': special_nodes_mask,
+                'edge_index': edge_index, 'edge_type': edge_type}  # , half_n_rel * 2 + 1
+
     @add_end_docstrings(ENCODE_KWARGS_DOCSTRING, ENCODE_PLUS_ADDITIONAL_KWARGS_DOCSTRING)
     def prepare_for_model(
         self,
         ids: List[int],
         pair_ids: Optional[List[int]] = None,
+        sub_graph=None,
+        id=None,
         add_special_tokens: bool = True,
         padding: Union[bool, str, PaddingStrategy] = False,
         truncation: Union[bool, str, TruncationStrategy] = False,
@@ -3015,6 +3223,10 @@ class PreTrainedTokenizerBase(SpecialTokensMixin, PushToHubMixin):
             else:
                 encoded_inputs["special_tokens_mask"] = [0] * len(sequence)
 
+        if sub_graph is not None:
+            encoded_inputs["subgraph"] = self._prepare_subgraph(sub_graph)
+
+
         # Check lengths
         self._eventual_warn_about_too_long_sequence(encoded_inputs["input_ids"], max_length, verbose)
 
@@ -3034,7 +3246,6 @@ class PreTrainedTokenizerBase(SpecialTokensMixin, PushToHubMixin):
         batch_outputs = BatchEncoding(
             encoded_inputs, tensor_type=return_tensors, prepend_batch_axis=prepend_batch_axis
         )
-
         return batch_outputs
 
     def truncate_sequences(
@@ -3204,6 +3415,9 @@ class PreTrainedTokenizerBase(SpecialTokensMixin, PushToHubMixin):
         # Initialize attention mask if not present.
         if return_attention_mask and "attention_mask" not in encoded_inputs:
             encoded_inputs["attention_mask"] = [1] * len(required_input)
+            encoded_inputs["global_attention_mask"] = [0] * len(required_input)
+            # global_attention_mask = torch.zeros_like(encoded_inputs["attention_mask"])
+            encoded_inputs["global_attention_mask"][0] = 1
 
         if needs_to_be_padded:
             difference = max_length - len(required_input)
@@ -3212,6 +3426,7 @@ class PreTrainedTokenizerBase(SpecialTokensMixin, PushToHubMixin):
                 if return_attention_mask:
 
                     encoded_inputs["attention_mask"] = encoded_inputs["attention_mask"] + [0] * difference
+                    encoded_inputs["global_attention_mask"] = encoded_inputs["global_attention_mask"] + [0] * difference
                 if "token_type_ids" in encoded_inputs:
                     encoded_inputs["token_type_ids"] = (
                         encoded_inputs["token_type_ids"] + [self.pad_token_type_id] * difference
