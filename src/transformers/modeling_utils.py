@@ -1242,6 +1242,7 @@ class PreTrainedModel(nn.Module, ModuleUtilsMixin, GenerationMixin, PushToHubMix
         >>> # Loading from a Flax checkpoint file instead of a PyTorch model (slower)
         >>> model = BertModel.from_pretrained("bert-base-uncased", from_flax=True)
         ```"""
+
         config = kwargs.pop("config", None)
         state_dict = kwargs.pop("state_dict", None)
         cache_dir = kwargs.pop("cache_dir", None)
@@ -1434,6 +1435,7 @@ class PreTrainedModel(nn.Module, ModuleUtilsMixin, GenerationMixin, PushToHubMix
 
         # load pt weights early so that we know which dtype to init the model under
         if from_pt:
+
             if state_dict is None:
                 try:
                     state_dict = torch.load(resolved_archive_file, map_location="cpu")
@@ -1489,6 +1491,7 @@ class PreTrainedModel(nn.Module, ModuleUtilsMixin, GenerationMixin, PushToHubMix
                 with no_init_weights(_enable=_fast_init):
                     model = cls(config, *model_args, **model_kwargs)
         else:
+
             with no_init_weights(_enable=_fast_init):
                 model = cls(config, *model_args, **model_kwargs)
 
@@ -1525,14 +1528,16 @@ class PreTrainedModel(nn.Module, ModuleUtilsMixin, GenerationMixin, PushToHubMix
                 )
                 raise
         elif from_pt:
-
             if low_cpu_mem_usage:
                 cls._load_state_dict_into_model_low_mem(model, loaded_state_dict_keys, resolved_archive_file)
             else:
+
+
                 model, missing_keys, unexpected_keys, mismatched_keys, error_msgs = cls._load_state_dict_into_model(
                     model,
                     state_dict,
                     pretrained_model_name_or_path,
+                    load_gnn=config.use_gnn,
                     ignore_mismatched_sizes=ignore_mismatched_sizes,
                     _fast_init=_fast_init,
                 )
@@ -1556,7 +1561,7 @@ class PreTrainedModel(nn.Module, ModuleUtilsMixin, GenerationMixin, PushToHubMix
 
     @classmethod
     def _load_state_dict_into_model(
-        cls, model, state_dict, pretrained_model_name_or_path, ignore_mismatched_sizes=False, _fast_init=True
+        cls, model, state_dict, pretrained_model_name_or_path, ignore_mismatched_sizes=False, _fast_init=True, load_gnn=True,
     ):
 
         # Convert old format to new format if needed from a PyTorch state_dict
@@ -1574,8 +1579,43 @@ class PreTrainedModel(nn.Module, ModuleUtilsMixin, GenerationMixin, PushToHubMix
         for old_key, new_key in zip(old_keys, new_keys):
             state_dict[new_key] = state_dict.pop(old_key)
 
+        # chnage model.encoder.embed_tokens to model.decoder.embed_tokens...
+        # state_dict = [p:s for p, s in state_dict.items()]
+
+
+        ## change this
+        # import pdb;pdb.set_trace()
+        # if load_gnn:
+        # new_state_dict = {}
+
+        # state_dict_tmp = state_dict.copy()
+        # for n, p in state_dict_tmp.items():
+        #     if 'model.encoder.embed_tokens' in n:
+                # new_state_dict[n.replace('encoder', 'decoder')] = p
+            # else:
+            #     new_state_dict[n] = p
+        # state_dict = new_state_dict
+
+        # state_dict_tmp = state_dict.copy()
+        # for n, p in state_dict_tmp.items():
+        #     if 'decoder' in n:
+        #         new_state_dict[n] = p
+        #     elif 'encoder' in n:
+        #         new_state_dict[n.replace('model.encoder', 'encoder.lmgnn.mp.encoder')] = p
+        #     else:
+        #         new_state_dict[n] = p
+        # state_dict = new_state_dict
+
+
+
         # Retrieve missing & unexpected_keys
         model_state_dict = model.state_dict()
+        new_state_dict = {n.replace('decoder.', 'model.decoder.lmgnn.mp.decoder.'):p  for n, p in state_dict.items()}
+        new_state_dict = {n.replace('encoder.', 'model.encoder.'):p  for n, p in new_state_dict.items()}
+        new_state_dict = {n.replace('shared.weight', 'model.shared.weight'):p  for n, p in new_state_dict.items()}
+        import collections
+        state_dict = collections.OrderedDict(new_state_dict)
+
         expected_keys = list(model_state_dict.keys())
         loaded_keys = list(state_dict.keys())
         prefix = model.base_model_prefix
@@ -1594,8 +1634,11 @@ class PreTrainedModel(nn.Module, ModuleUtilsMixin, GenerationMixin, PushToHubMix
         elif add_prefix_to_model:
             expected_keys = [".".join([prefix, s]) for s in expected_keys]
 
+
+
         missing_keys = list(set(expected_keys) - set(loaded_keys))
         unexpected_keys = list(set(loaded_keys) - set(expected_keys))
+
 
         # Mistmatched keys contains tuples key/shape1/shape2 of weights in the checkpoint that have a shape not
         # matching the weights in the model.
@@ -1679,6 +1722,9 @@ class PreTrainedModel(nn.Module, ModuleUtilsMixin, GenerationMixin, PushToHubMix
                     "properly saved?"
                 )
 
+
+        # state_dict = {n:p if 'encoder' not in n else 'encoder.lmgnn.mp.encoder' + n.replace('encoder', '') for n, p in state_dict.items()}
+        # import pdb;pdb.set_trace()
         load(model_to_load, prefix=start_prefix)
 
         if len(error_msgs) > 0:
@@ -1778,6 +1824,9 @@ class PreTrainedModel(nn.Module, ModuleUtilsMixin, GenerationMixin, PushToHubMix
                     submodule = None
                     break
             return submodule, split_key[0]
+
+        import pdb;
+        pdb.set_trace()
 
         # dematerialize param storage for keys that are going to be replaced by state_dict, by
         # putting those on the meta device

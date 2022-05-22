@@ -137,11 +137,13 @@ class BartConfig(PretrainedConfig):
         pad_token_id=1,
         bos_token_id=0,
         eos_token_id=2,
+        use_gnn=True,
         is_encoder_decoder=True,
         decoder_start_token_id=2,
         forced_eos_token_id=2,
         **kwargs
     ):
+        self.use_gnn = use_gnn
         self.vocab_size = vocab_size
         self.max_position_embeddings = max_position_embeddings
         self.d_model = d_model

@@ -55,63 +55,95 @@ def mp_converter(instance):
     return output_dict
 
 
-def convert_to_entailment(dataset_dir: str, output_file: str):
+def convert_to_entailment(dataset_dir: str, output_file: str, SEED, K, is_distributed=False, is_test=False):
     print(f'Processing is done on server {os.environ["SERVER_NAME"]}....')
     print(f'converting {dataset_dir} to entailment dataset...')
     nrow = sum(1 for _ in open(dataset_dir, 'r'))
     mp_instances = []
     with open(dataset_dir, 'r') as ds_handle:
-        # print("Writing to {} from {}".format(output_file, qa_file))
         for line in tqdm(ds_handle, total=nrow):
             json_line = json.loads(line)
             mp_instances.append(json_line)
             # print('here')
-    random.seed(88)
-    random.shuffle(mp_instances)
 
-    # 3 servers; here is the standing... (train)
-    # 0: chianti
-    # 1: brunello
-    # 2: barolo
-    # if os.environ['SERVER_NAME'] == 'chianti':
-    index = 0
-    # elif os.environ['SERVER_NAME'] == 'brunello':
-    #     index = 1
-    # elif os.environ['SERVER_NAME'] == 'barolo':
-    #     index = 2
 
-    index_weights = {
-        -1: 0,
+    if SEED!=-1 and K!=-1:
+        # Choose K instances from mp_instance
+        # random.seed(SEED)
+        # random.shuffle(mp_instances)
+        # if is_test:
+        #     mp_instances = mp_instances[:int(len(mp_instances) * .2)]
+        # else:
+        #     mp_instances = mp_instances[:K]
 
-        0: 0.25,
-        1: 0.40,
-        2: 0.35,
-    }
-    boundaries = {
-        -1: 0,
+        if 'train' in dataset_dir:
+            SET = 'train'
+        elif 'val' in dataset_dir:
+            SET = 'val'
 
-        0: 0,
-        1: 0,
-        2: 0,
-    }
+        sampled_ids = []
+        with open(f'/disk1/sajad/datasets/news/xsum/json_ids/{SET}.seed{SEED}.k{K}.txt') as fR:
+            for l in fR:
+                sampled_ids.append(l.strip())
 
-    index_boundaries = {}
-    all_len = len(mp_instances)
-    for jidx, (_index, weight) in enumerate(index_weights.items()):
-        if _index!= -1 and _index != 1000 and _index == index:
-            # import pdb;pdb.set_trace()
-            lb = sum([int(all_len*index_weights[_i]) for _i in list(index_weights.keys())[:jidx]])
-            # lb = boundaries[jidx-1] if jidx != 0 else 0
+        new_instances = []
+        for m in mp_instances:
+            if m['id'] in sampled_ids:
+                new_instances.append(m)
 
-            ub = lb + int(all_len * weight) if _index != list(index_weights.keys())[-1] else all_len
-            # boundaries[jidx] = ub
-            mp_instances = mp_instances[lb:ub]
-            break
+        mp_instances = new_instances
 
-    if os.environ['SERVER_NAME'] == 'brunello':
-        mp_instances = mp_instances[:len(mp_instances)//2]
-    elif os.environ['SERVER_NAME'] == 'barolo':
-        mp_instances = mp_instances[:len(mp_instances)//2]
+
+    if is_distributed:
+        random.seed(88)
+        random.shuffle(mp_instances)
+
+        # 3 servers; here is the standing... (train)
+        # 0: chianti
+        # 1: brunello
+        # 2: barolo
+        # mp_instances = mp_instances[len(mp_instances)//2:]
+        # mp_instances = mp_instances[:5]
+        if os.environ['SERVER_NAME'] == 'chianti':
+            index = 0
+        elif os.environ['SERVER_NAME'] == 'brunello':
+            index = 1
+        elif os.environ['SERVER_NAME'] == 'barolo':
+            index = 2
+        # elif os.environ['SERVER_NAME'] == 'barbaresco':
+        #     index = 2
+        # elif os.environ['SERVER_NAME'] == 'barolo':
+        #     index = 2
+        # else:
+        #     index = 2
+
+        index_weights = {
+            -1: 0,
+
+            0: 0.25,
+            1: 0.40,
+            2: 0.35,
+        }
+        boundaries = {
+            -1: 0,
+
+            0: 0,
+            1: 0,
+            2: 0,
+        }
+
+        index_boundaries = {}
+        all_len = len(mp_instances)
+        for jidx, (_index, weight) in enumerate(index_weights.items()):
+            if _index!= -1 and _index != 1000 and _index == index:
+                # import pdb;pdb.set_trace()
+                lb = sum([int(all_len*index_weights[_i]) for _i in list(index_weights.keys())[:jidx]])
+                # lb = boundaries[jidx-1] if jidx != 0 else 0
+
+                ub = lb + int(all_len * weight) if _index != list(index_weights.keys())[-1] else all_len
+                # boundaries[jidx] = ub
+                mp_instances = mp_instances[lb:ub]
+                break
 
     # import pdb;pdb.set_trace()
     print('Writing instances to entailment...')
@@ -141,14 +173,14 @@ def get_sentences(text):
 
 # Convert the QA file json to output dictionary containing premise and hypothesis
 def convert_qajson_to_entailment(qa_json: dict):
-    source_text = qa_json["src"]
-    summary_text = qa_json["tldr"]
+    source_text = qa_json["document"]
+    summary_text = qa_json["summary"]
 
     # now split based on sentences
     # TODO
     sentences = get_sentences(source_text)
     return {
-        'statements': [s.replace('\n', '') for s in sentences][:12],
+        'statements': [s.replace('\n', '') for s in sentences],
         'highlights': summary_text,
         'id': qa_json['id']
     }

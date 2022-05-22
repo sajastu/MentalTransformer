@@ -23,7 +23,9 @@ import torch
 import torch.utils.checkpoint
 from torch import nn
 from torch.nn import BCEWithLogitsLoss, CrossEntropyLoss, MSELoss
+import torch.nn.functional as F
 
+from .modeling_grease import GreaseBartDecoder
 from ...activations import ACT2FN
 from ...file_utils import (
     add_code_sample_docstrings,
@@ -32,6 +34,9 @@ from ...file_utils import (
     add_start_docstrings_to_model_forward,
     replace_return_docstrings,
 )
+from ...graph_data_prepartion import modeling_gnn
+from ...graph_data_prepartion.preprocess_utils.visualization_utils import merged_relations, visualize_word_graph
+from ...graph_data_prepartion.utils import layers
 from ...modeling_outputs import (
     BaseModelOutput,
     BaseModelOutputWithPastAndCrossAttentions,
@@ -242,6 +247,7 @@ class BartAttention(nn.Module):
             # make sure that attn_weights keeps its gradient.
             # In order to do so, attn_weights have to be reshaped
             # twice and have to be reused in the following
+
             attn_weights_reshaped = attn_weights.view(bsz, self.num_heads, tgt_len, src_len)
             attn_weights = attn_weights_reshaped.view(bsz * self.num_heads, tgt_len, src_len)
         else:
@@ -432,7 +438,6 @@ class BartDecoderLayer(nn.Module):
 
             # add cross-attn to positions 3,4 of present_key_value tuple
             present_key_value = present_key_value + cross_attn_present_key_value
-
         # Fully Connected
         residual = hidden_states
         hidden_states = self.activation_fn(self.fc1(hidden_states))
@@ -668,6 +673,429 @@ BART_INPUTS_DOCSTRING = r"""
 """
 
 
+class GreaseLM(nn.Module):
+
+    def __init__(self, config: BartConfig, embed_tokens: Optional[nn.Embedding] = None, k=5, n_ntype=3, n_etype=38,
+                 n_concept=799273, concept_dim=200, concept_in_dim=1024, n_attention_head=2,
+                 fc_dim=200, n_fc_layer=0, p_emb=0.2, p_gnn=0.2, p_fc=0.2,
+                 pretrained_concept_emb=None, freeze_ent_emb=False, hidden_size=200,
+                 init_range=0.02, ie_dim=200, info_exchange="every-other-layer", ie_layer_num=1, sep_ie_layers=False, layer_id=-1):
+        super(GreaseLM, self).__init__()
+        load_resources('/disk1/sajad/gov-reports/cpnet/concept.txt')
+        self.lmgnn = LMGNN(config, embed_tokens, k, n_ntype, n_etype,
+                           n_concept, concept_dim, concept_in_dim, n_attention_head,
+                           fc_dim, n_fc_layer, p_emb, p_gnn, p_fc, pretrained_concept_emb=pretrained_concept_emb,
+                           freeze_ent_emb=freeze_ent_emb,
+                           init_range=init_range, ie_dim=ie_dim, info_exchange=True, ie_layer_num=ie_layer_num,
+                           sep_ie_layers=sep_ie_layers, layer_id=layer_id)
+
+    def batch_graph(self, subgraphs):
+        """
+        edge_index_init: list of (n_examples, ). each entry is torch.tensor(2, E)
+        edge_type_init:  list of (n_examples, ). each entry is torch.tensor(E, )
+
+        subgraph[0]['concept_ids'], subgraph[0]['node_type_ids'], \
+                                                            subgraph[0]['node_scores'], subgraph[0]['edge_index'], \
+                                                            subgraph[0]['edge_type'], subgraph[0]['adj_lengths']
+
+        """
+        n_examples = len(subgraphs)
+
+        concept_ids, node_type_ids, node_scores, edge_index_init, edge_type_init, adj_lengths, special_nodes_mask = [subgraphs[j]['concept_ids'] for j in range(n_examples)], \
+                                                                                      [subgraphs[j]['node_type_ids'] for j in range(n_examples)], \
+                                                                                      [subgraphs[j]['node_scores'] for j in range(n_examples)], \
+                                                                                      [subgraphs[j]['edge_index'].squeeze(0) for j in range(n_examples)], \
+                                                                                      [subgraphs[j]['edge_type'].squeeze(0) for j in range(n_examples)], \
+                                                                                      [subgraphs[j]['adj_lengths'] for j in range(n_examples)], \
+                                                                                      [subgraphs[j]['special_nodes_mask'] for j in range(n_examples)]
+
+        concept_ids = torch.cat(concept_ids, dim=0)
+        node_type_ids = torch.cat(node_type_ids, dim=0)
+        node_scores = torch.cat(node_scores, dim=0)
+        adj_lengths = torch.cat(adj_lengths, dim=0)
+        special_nodes_mask = torch.cat(special_nodes_mask, dim=0)
+
+        n_nodes = concept_ids.size(1)
+        edge_index = [edge_index_init[_i_] + _i_ * n_nodes for _i_ in range(n_examples)]
+        edge_index = torch.cat(edge_index, dim=1) #[2, total_E]
+        edge_type = torch.cat(edge_type_init, dim=0) #[total_E, ]
+
+
+        return concept_ids, node_type_ids, node_scores, edge_index, edge_type, adj_lengths, special_nodes_mask
+
+    def forward(
+        self,
+        input_ids=None,
+        attention_mask=None,
+        head_mask=None,
+        inputs_embeds=None,
+        subgraphs=None,
+        output_attentions=None,
+        output_hidden_states=None,
+        return_dict=None,
+        doc_ids=None,
+    ):
+
+        bs = input_ids.size(0), input_ids.size(1)
+        encoder_states = () if output_hidden_states else None
+        all_attentions = () if output_attentions else None
+
+        # Here, get the graph batch
+        concept_ids, node_type_ids, node_scores, edge_index, edge_type, adj_lengths, special_nodes_mask = self.batch_graph(subgraphs)
+
+
+        node_scores = torch.zeros_like(node_scores)
+        adj = (edge_index.to(node_type_ids.device),
+               edge_type.to(node_type_ids.device))  # edge_index: [2, total_E]   edge_type: [total_E, ]
+
+        logits, attn = self.lmgnn(input_ids, attention_mask, head_mask, inputs_embeds, concept_ids,
+                                  node_type_ids, node_scores, adj_lengths, special_nodes_mask, adj)
+
+
+        # global id2relation, id2concept
+        # print('heree')
+        # visualize_word_graph(doc_ids, edge_index, edge_type, id2concept, id2relation, concept_ids, attn)
+
+        return BaseModelOutput(
+            last_hidden_state=logits, hidden_states=encoder_states, attentions=all_attentions
+        )
+
+
+def load_resources(cpnet_vocab_path):
+    global concept2id, id2concept, relation2id, id2relation
+
+    with open(cpnet_vocab_path, "r", encoding="utf8") as fin:
+        id2concept = [w.strip() for w in fin]
+    concept2id = {w: i for i, w in enumerate(id2concept)}
+
+    id2relation = merged_relations
+    relation2id = {r: i for i, r in enumerate(id2relation)}
+
+
+class LMGNN(nn.Module):
+    def __init__(self, config, embed_tokens: Optional[nn.Embedding] = None,  k=5, n_ntype=4, n_etype=38,
+                 n_concept=799273, concept_dim=200, concept_in_dim=1024, n_attention_head=2,
+                 fc_dim=1024, n_fc_layer=0, p_emb=0.2, p_gnn=0.2, p_fc=0.2,
+                 pretrained_concept_emb=None, freeze_ent_emb=True,
+                 init_range=0.02, ie_dim=200, info_exchange=True, ie_layer_num=1, sep_ie_layers=False, layer_id=-1):
+        super().__init__()
+        self.init_range = init_range
+
+        self.k = k
+        self.concept_dim = concept_dim
+        self.n_attention_head = n_attention_head
+        self.activation = layers.GELU()
+        if k >= 0:
+            self.concept_emb = layers.CustomizedEmbedding(concept_num=n_concept, concept_out_dim=concept_dim, use_contextualized=False, concept_in_dim=concept_in_dim, pretrained_concept_emb=pretrained_concept_emb, freeze_ent_emb=freeze_ent_emb)
+            self.pooler = layers.MultiheadAttPoolLayer(n_attention_head, config.hidden_size, concept_dim)
+
+        concat_vec_dim = concept_dim * 2 + config.hidden_size
+        self.fc = layers.MLP(concat_vec_dim, fc_dim, config.hidden_size, n_fc_layer, p_fc, layer_norm=True)
+
+        self.dropout_e = nn.Dropout(p_emb)
+        self.dropout_fc = nn.Dropout(p_fc)
+
+        if init_range > 0:
+            self.apply(self._init_weights)
+
+        # self.mp = BartEncoder(config, k=k, n_ntype=n_ntype, n_etype=n_etype, dropout=p_gnn,
+        #                               concept_dim=concept_dim, ie_dim=ie_dim, p_fc=p_fc,
+        #                               info_exchange=info_exchange, ie_layer_num=ie_layer_num,
+        #                               sep_ie_layers=sep_ie_layers)
+
+        self.mp = TextKGMessagePassing(config, k=k,
+                                      n_ntype=n_ntype, n_etype=n_etype, dropout=p_gnn,
+                                      concept_dim=concept_dim, ie_dim=ie_dim, p_fc=p_fc,
+                                      info_exchange=info_exchange, ie_layer_num=ie_layer_num,
+                                      sep_ie_layers=sep_ie_layers)
+
+        self.layer_id = layer_id
+        self.cpnet_vocab_size = n_concept
+
+    def _init_weights(self, module):
+        if isinstance(module, (nn.Linear, nn.Embedding)):
+
+            module.weight.data.normal_(mean=0.0, std=self.init_range)
+            if hasattr(module, 'bias') and module.bias is not None:
+                module.bias.data.zero_()
+        elif isinstance(module, nn.LayerNorm):
+            import pdb;
+            pdb.set_trace()
+            module.bias.data.zero_()
+            module.weight.data.fill_(1.0)
+
+    def forward(
+        self,
+        input_ids,
+        attention_mask,
+        head_mask,
+        inputs_embeds,
+        concept_ids,
+        node_type_ids,
+        node_scores,
+        adj_lengths,
+        special_nodes_mask,
+        adj,
+        emb_data=None,
+        cache_output=False,
+        use_bart=False,
+    ):
+        """
+        concept_ids: (batch_size, n_node)
+        adj: edge_index, edge_type
+        adj_lengths: (batch_size,)
+        node_type_ids: (batch_size, n_node)
+            0 == question entity; 1 == answer choice entity; 2 == other node; 3 == context node
+        node_scores: (batch_size, n_node, 1)
+
+        returns:
+        logits: [bs]
+        """
+
+        # GNN inputs
+        concept_ids[concept_ids == 0] = self.cpnet_vocab_size + 2
+        gnn_input = self.concept_emb(concept_ids - 1, emb_data).to(node_type_ids.device)
+        gnn_input[:, 0] = 0
+        gnn_input = self.dropout_e(gnn_input) #(batch_size, n_node, dim_node)
+
+        #Normalize node sore (use norm from Z)
+        _mask = (torch.arange(node_scores.size(1), device=node_scores.device) < adj_lengths.unsqueeze(1)).float() #0 means masked out #[batch_size, n_node]
+        node_scores = -node_scores
+        node_scores = node_scores - node_scores[:, 0:1, :] #[batch_size, n_node, 1]
+        node_scores = node_scores.squeeze(2) #[batch_size, n_node]
+        node_scores = node_scores * _mask
+        mean_norm  = (torch.abs(node_scores)).sum(dim=1) / adj_lengths  #[batch_size, ]
+        node_scores = node_scores / (mean_norm.unsqueeze(1) + 1e-05) #[batch_size, n_node]
+        node_scores = node_scores.unsqueeze(2) #[batch_size, n_node, 1]
+
+        # Merged core
+        """
+            input_ids, token_type_ids, attention_mask, special_tokens_mask, H, A, node_type, 
+                        node_score, special_nodes_mask, cache_output=False, position_ids=None, head_mask=None, output_hidden_states=True
+            """
+        outputs, gnn_output = self.mp(input_ids, attention_mask=attention_mask, head_mask=head_mask, inputs_embeds=inputs_embeds,
+                                      H=gnn_input, A=adj, node_type=node_type_ids, node_score=node_scores,
+                                      special_nodes_mask=special_nodes_mask, output_hidden_states=True, use_bart=use_bart)
+
+        # print('after MP (inside LMGNN class)')
+        # outputs: ([bs, seq_len, sent_dim], [bs, sent_dim], ([bs, seq_len, sent_dim] for _ in range(25)))
+        # gnn_output: [bs, n_node, dim_node]
+
+        # LM outputs
+        # all_hidden_states = outputs[-1] # ([bs, seq_len, sent_dim] for _ in range(25))
+        logits = outputs # [bs, seq_len, sent_dim]
+
+        pool_attn = None
+        if not use_bart:
+            hidden_states = outputs # [bs, seq_len, sent_dim]
+
+        # import pdb;pdb.set_trace()
+            sent_vecs = self.mp.pooler(hidden_states) # [bs, sent_dim]
+
+            # sent_token_mask = output_mask.clone()
+            # sent_token_mask[:, 0] = 0
+
+            # GNN outputs
+            Z_vecs = gnn_output[:,0]   #(batch_size, dim_node)
+
+            mask = torch.arange(node_type_ids.size(1), device=node_type_ids.device) >= adj_lengths.unsqueeze(1) #1 means masked out
+
+            mask = mask | (node_type_ids == 1) # pool over all KG nodes (excluding the context node)
+            mask[mask.all(1), 0] = 0  # a temporary solution to avoid zero node
+
+            sent_vecs_for_pooler = sent_vecs
+            graph_vecs, pool_attn = self.pooler(sent_vecs_for_pooler, gnn_output, mask)
+            # graph_vecs: [bs, node_dim]
+
+            sent_node_mask = special_nodes_mask.clone()
+            sent_node_mask[:, 0] = 0
+
+            if cache_output:
+                self.concept_ids = concept_ids
+                self.adj = adj
+                self.pool_attn = pool_attn
+
+            # concat = torch.cat((graph_vecs, sent_vecs, Z_vecs), 1)
+            concat = torch.cat((graph_vecs.unsqueeze(1).repeat(1, hidden_states.size(1), 1), hidden_states, Z_vecs.unsqueeze(1).repeat(1, hidden_states.size(1), 1)), 2)
+            logits = self.fc(self.dropout_fc(concat))
+
+        return logits, pool_attn
+
+
+class BartPooler(nn.Module):
+    def __init__(self, config):
+        super().__init__()
+        self.dense = nn.Linear(config.hidden_size, config.hidden_size)
+        self.activation = nn.Tanh()
+
+    def forward(self, hidden_states: torch.Tensor) -> torch.Tensor:
+        # We "pool" the model by simply taking the hidden state corresponding
+        # to the first token.
+        first_token_tensor = hidden_states[:, 0]
+        pooled_output = self.dense(first_token_tensor)
+        pooled_output = self.activation(pooled_output)
+        return pooled_output
+
+
+class TextKGMessagePassing(nn.Module):
+
+    def __init__(self, config, k=5, n_ntype=4, n_etype=38, dropout=0.2, concept_dim=200, ie_dim=200, p_fc=0.2, info_exchange=True, ie_layer_num=1, sep_ie_layers=False):
+        super().__init__()
+
+        self.config = config
+        self.n_ntype = n_ntype
+        self.n_etype = n_etype
+
+        self.hidden_size = concept_dim
+        self.emb_node_type = nn.Linear(self.n_ntype, concept_dim // 2)
+
+        self.basis_f = 'sin' #['id', 'linact', 'sin', 'none']
+        if self.basis_f in ['id']:
+            self.emb_score = nn.Linear(1, concept_dim // 2)
+        elif self.basis_f in ['linact']:
+            self.B_lin = nn.Linear(1, concept_dim // 2)
+            self.emb_score = nn.Linear(concept_dim // 2, concept_dim // 2)
+        elif self.basis_f in ['sin']:
+            self.emb_score = nn.Linear(concept_dim // 2, concept_dim // 2)
+
+        self.k = k
+
+        self.Vh = nn.Linear(concept_dim, concept_dim)
+        self.Vx = nn.Linear(concept_dim, concept_dim)
+
+        self.activation = layers.GELU()
+        self.dropout = nn.Dropout(dropout)
+        self.dropout_rate = dropout
+
+        self.pooler = BartPooler(config)
+
+        self.encoder = BartEncoder(config, k=k, n_ntype=n_ntype, n_etype=n_etype, hidden_size=concept_dim,
+                                   dropout=dropout, concept_dim=concept_dim, ie_dim=ie_dim, p_fc=p_fc, info_exchange=info_exchange,
+                                   ie_layer_num=ie_layer_num, sep_ie_layers=sep_ie_layers)
+
+        self.sent_dim = config.hidden_size
+
+
+    """
+    input_ids, attention_mask=attention_mask,
+    H=gnn_input, A=adj, node_type=node_type_ids, node_score=node_scores,
+    special_nodes_mask=special_nodes_mask, output_hidden_states=True
+    """
+    def forward(self, input_ids, attention_mask, H, A, node_type,
+                node_score, special_nodes_mask, cache_output=False,
+                inputs_embeds = None, position_ids=None, head_mask=None, output_hidden_states=True, use_bart=False):
+        """
+        input_ids: [bs, seq_len]
+        token_type_ids: [bs, seq_len]
+        attention_mask: [bs, seq_len]
+        H: tensor of shape (batch_size, n_node, d_node)
+            node features from the previous layer
+        A: (edge_index, edge_type)
+            edge_index: [2, n_edges]
+            edge_type: [n_edges]
+        node_type: long tensor of shape (batch_size, n_node)
+            0 == question entity; 1 == answer choice entity; 2 == other node; 3 == context node
+        node_score: tensor of shape (batch_size, n_node, 1)
+        """
+        # LM inputs
+        # if attention_mask is None:
+        #     attention_mask = torch.ones_like(input_ids)
+        # if token_type_ids is None:
+        #     token_type_ids = torch.zeros_like(input_ids)
+
+        # We create a 3D attention mask from a 1D tensor mask.
+        # Sizes are [batch_size, 1, 1, to_seq_length]
+        # So we can broadcast to [batch_size, num_heads, from_seq_length, to_seq_length]
+        # this attention mask is more simple than the triangular masking of causal attention
+        # used in OpenAI GPT, we just need to prepare the broadcast dimension here.
+        # if len(attention_mask.size()) == 2:
+        #     extended_attention_mask = attention_mask.unsqueeze(1).unsqueeze(2)
+        # elif len(attention_mask.size()) == 3:
+        #     extended_attention_mask = attention_mask.unsqueeze(1)
+        # else:
+        #     raise ValueError("Attnetion mask should be either 1D or 2D.")
+
+        # Since attention_mask is 1.0 for positions we want to attend and 0.0 for
+        # masked positions, this operation will create a tensor which is 0.0 for
+        # positions we want to attend and -10000.0 for masked positions.
+        # Since we are adding it to the raw scores before the softmax, this is
+        # effectively the same as removing these entirely.
+        # extended_attention_mask = extended_attention_mask.to(dtype=next(self.parameters()).dtype) # fp16 compatibility
+        # extended_attention_mask = (1.0 - extended_attention_mask) * -10000.0
+
+        # Prepare head mask if needed
+        # 1.0 in head_mask indicate we keep the head
+        # attention_probs has shape bsz x n_heads x N x N
+        # input head_mask has shape [num_heads] or [num_hidden_layers x num_heads]
+        # and head_mask is converted to shape [num_hidden_layers x batch x num_heads x seq_length x seq_length]
+        if head_mask is not None:
+            if head_mask.dim() == 1:
+                head_mask = head_mask.unsqueeze(0).unsqueeze(0).unsqueeze(-1).unsqueeze(-1)
+                head_mask = head_mask.expand(self.config.num_hidden_layers, -1, -1, -1, -1)
+            elif head_mask.dim() == 2:
+                head_mask = head_mask.unsqueeze(1).unsqueeze(-1).unsqueeze(-1)  # We can specify head_mask for each layer
+            head_mask = head_mask.to(dtype=next(self.parameters()).dtype) # switch to fload if need + fp16 compatibility
+        else:
+            head_mask = None
+
+        # embedding_output = self.embeddings(input_ids, position_ids=position_ids)
+
+        # GNN inputs
+        _batch_size, _n_nodes = node_type.size()
+
+        #Embed type
+        T = modeling_gnn.make_one_hot(node_type.view(-1).contiguous(), self.n_ntype).view(_batch_size, _n_nodes, self.n_ntype)
+        node_type_emb = self.activation(self.emb_node_type(T)) #[batch_size, n_node, dim/2]
+
+        #Embed score
+        if self.basis_f == 'sin':
+            js = torch.arange(self.hidden_size//2).unsqueeze(0).unsqueeze(0).float().to(node_type.device) #[1,1,dim/2]
+            js = torch.pow(1.1, js) #[1,1,dim/2]
+            B = torch.sin(js * node_score) #[batch_size, n_node, dim/2]
+            node_score_emb = self.activation(self.emb_score(B)) #[batch_size, n_node, dim/2]
+        elif self.basis_f == 'id':
+            B = node_score
+            node_score_emb = self.activation(self.emb_score(B)) #[batch_size, n_node, dim/2]
+        elif self.basis_f == 'linact':
+            B = self.activation(self.B_lin(node_score)) #[batch_size, n_node, dim/2]
+            node_score_emb = self.activation(self.emb_score(B)) #[batch_size, n_node, dim/2]
+
+
+        X = H
+        edge_index, edge_type = A #edge_index: [2, total_E]   edge_type: [total_E, ]  where total_E is for the batched graph
+        _X = X.view(-1, X.size(2)).contiguous() #[`total_n_nodes`, d_node] where `total_n_nodes` = b_size * n_node
+        _node_type = node_type.view(-1).contiguous() #[`total_n_nodes`, ]
+        _node_feature_extra = torch.cat([node_type_emb, node_score_emb], dim=2).view(_node_type.size(0), -1).contiguous() #[`total_n_nodes`, dim]
+
+
+        # Merged core
+        encoder_outputs, _X = self.encoder(input_ids,
+                                           attention_mask,
+                                           head_mask, inputs_embeds=inputs_embeds,
+                                            _X = _X, edge_index =edge_index, edge_type = edge_type,
+                                           _node_type = _node_type, _node_feature_extra =_node_feature_extra,
+                                           special_nodes_mask =special_nodes_mask, output_hidden_states=output_hidden_states, use_bart=use_bart)
+
+        # print('after lmgnn encoder (inside TextKG...)')
+
+        # LM outputs
+        # import pdb;pdb.set_trace()
+        sequence_output = encoder_outputs
+        if not use_bart:
+            pooled_output = self.pooler(sequence_output)
+
+        outputs = sequence_output # add hidden_states and attentions if they are here
+
+        # GNN outputs
+        output = None
+        if not use_bart:
+            X = _X.view(node_type.size(0), node_type.size(1), -1) #[batch_size, n_node, dim]
+            output = self.activation(self.Vh(H) + self.Vx(X))
+            output = self.dropout(output)
+
+        return outputs, output
+
+
 class BartEncoder(BartPretrainedModel):
     """
     Transformer encoder consisting of *config.encoder_layers* self attention layers. Each layer is a
@@ -678,7 +1106,12 @@ class BartEncoder(BartPretrainedModel):
         embed_tokens (nn.Embedding): output embedding
     """
 
-    def __init__(self, config: BartConfig, embed_tokens: Optional[nn.Embedding] = None):
+    def __init__(self, config: BartConfig, embed_tokens: Optional[nn.Embedding] = None, k=5, n_ntype=4, n_etype=38,
+                 n_concept=799273, concept_dim=200, concept_in_dim=1024, n_attention_head=2, hidden_size = 200,
+                 fc_dim=1024, n_fc_layer=0, p_emb=0.2, p_gnn=0.2, p_fc=0.2,
+                 pretrained_concept_emb=None, freeze_ent_emb=True,
+                 init_range=0.02, ie_dim=200, info_exchange=True, ie_layer_num=1, sep_ie_layers=False, layer_id=-1, dropout=0.2, use_gnn=True):
+
         super().__init__(config)
 
         self.dropout = config.dropout
@@ -705,11 +1138,50 @@ class BartEncoder(BartPretrainedModel):
         # Initialize weights and apply final processing
         self.post_init()
 
+        self.use_gnn = use_gnn
+
+        # if self.use_gnn:
+        #     ####### GNN
+        #     self.k = k
+        #     self.edge_encoder = torch.nn.Sequential(torch.nn.Linear(n_etype + 1 + n_ntype * 2, hidden_size),
+        #                                             torch.nn.BatchNorm1d(hidden_size), torch.nn.ReLU(),
+        #                                             torch.nn.Linear(hidden_size, hidden_size))
+        #     self.gnn_layers = nn.ModuleList(
+        #         [modeling_gnn.GATConvE(hidden_size, n_ntype, n_etype, self.edge_encoder) for _ in range(k)])
+        #     self.activation = layers.GELU()
+        #     self.dropout_rate = dropout
+        #
+        #     self.sent_dim = config.hidden_size
+        #     self.sep_ie_layers = sep_ie_layers
+        #     if sep_ie_layers:
+        #         self.ie_layers = nn.ModuleList(
+        #             [layers.MLP(self.sent_dim + concept_dim, ie_dim, self.sent_dim + concept_dim, ie_layer_num, p_fc) for _
+        #              in range(k)])
+        #     else:
+        #         self.ie_layer = layers.MLP(self.sent_dim + concept_dim, ie_dim, self.sent_dim + concept_dim, ie_layer_num,
+        #                                    p_fc)
+        #
+        #     self.concept_dim = concept_dim
+        #     self.num_hidden_layers = config.num_hidden_layers
+        #     self.info_exchange = info_exchange
+
+
+
     def get_input_embeddings(self):
         return self.embed_tokens
 
     def set_input_embeddings(self, value):
         self.embed_tokens = value
+
+    """
+    input_ids,
+    extended_attention_mask,
+    head_mask,
+    _X = _X, edge_index =edge_index, edge_type = edge_type,
+    _node_type = _node_type, _node_feature_extra =_node_feature_extra,
+    special_nodes_mask =special_nodes_mask, output_hidden_states=output_hidden_states
+    """
+
 
     def forward(
         self,
@@ -717,10 +1189,20 @@ class BartEncoder(BartPretrainedModel):
         attention_mask=None,
         head_mask=None,
         inputs_embeds=None,
-        output_attentions=None,
-        output_hidden_states=None,
+        output_attentions=False,
+        output_hidden_states=True,
         return_dict=None,
+        _X=None,
+        edge_index=None,
+        edge_type=None,
+        _node_type=None,
+        _node_feature_extra=None,
+        special_nodes_mask=None,
+        subgraphs=None,
+        doc_ids=None,
+        use_bart=None,
     ):
+
         r"""
         Args:
             input_ids (`torch.LongTensor` of shape `(batch_size, sequence_length)`):
@@ -757,6 +1239,8 @@ class BartEncoder(BartPretrainedModel):
             return_dict (`bool`, *optional*):
                 Whether or not to return a [`~file_utils.ModelOutput`] instead of a plain tuple.
         """
+        bs = input_ids.size(0)
+
         output_attentions = output_attentions if output_attentions is not None else self.config.output_attentions
         output_hidden_states = (
             output_hidden_states if output_hidden_states is not None else self.config.output_hidden_states
@@ -786,6 +1270,7 @@ class BartEncoder(BartPretrainedModel):
         # expand attention_mask
         if attention_mask is not None:
             # [bsz, seq_len] -> [bsz, 1, tgt_seq_len, src_seq_len]
+            # import pdb;pdb.set_trace()
             attention_mask = _expand_mask(attention_mask, inputs_embeds.dtype)
 
         encoder_states = () if output_hidden_states else None
@@ -798,7 +1283,7 @@ class BartEncoder(BartPretrainedModel):
                     f"The head_mask should be specified for {len(self.layers)} layers, but it is for {head_mask.size()[0]}."
                 )
 
-        for idx, encoder_layer in enumerate(self.layers):
+        for i, encoder_layer in enumerate(self.layers):
             if output_hidden_states:
                 encoder_states = encoder_states + (hidden_states,)
             # add LayerDrop (see https://arxiv.org/abs/1909.11556 for description)
@@ -806,41 +1291,64 @@ class BartEncoder(BartPretrainedModel):
             if self.training and (dropout_probability < self.layerdrop):  # skip the layer
                 layer_outputs = (None, None)
             else:
-                if self.gradient_checkpointing and self.training:
 
-                    def create_custom_forward(module):
-                        def custom_forward(*inputs):
-                            return module(*inputs, output_attentions)
-
-                        return custom_forward
-
-                    layer_outputs = torch.utils.checkpoint.checkpoint(
-                        create_custom_forward(encoder_layer),
-                        hidden_states,
-                        attention_mask,
-                        (head_mask[idx] if head_mask is not None else None),
-                    )
-                else:
-                    layer_outputs = encoder_layer(
-                        hidden_states,
-                        attention_mask,
-                        layer_head_mask=(head_mask[idx] if head_mask is not None else None),
-                        output_attentions=output_attentions,
-                    )
+                layer_outputs = encoder_layer(
+                    hidden_states,
+                    attention_mask,
+                    layer_head_mask=(head_mask[i] if head_mask is not None else None),
+                    output_attentions=output_attentions,
+                )
 
                 hidden_states = layer_outputs[0]
 
             if output_attentions:
                 all_attentions = all_attentions + (layer_outputs[1],)
 
+            # if self.use_gnn and i >= self.num_hidden_layers - self.k:
+            #     # GNN
+            #     gnn_layer_index = i - self.num_hidden_layers + self.k
+            #     _X = self.gnn_layers[gnn_layer_index](_X, edge_index, edge_type, _node_type, _node_feature_extra)
+            #     _X = self.activation(_X)
+            #     _X = F.dropout(_X, self.dropout_rate, training = self.training)
+            #
+            #     # Exchange info between LM and GNN hidden states (Modality interaction)
+            #     if self.info_exchange == True or (self.info_exchange == "every-other-layer" and (i - self.num_hidden_layers + self.k) % 2 == 0):
+            #         X = _X.view(bs, -1, _X.size(1)) # [bs, max_num_nodes, node_dim]
+            #         context_node_lm_feats = hidden_states[:, 0, :] # [bs, sent_dim]
+            #         context_node_gnn_feats = X[:, 0, :] # [bs, node_dim]
+            #         context_node_feats = torch.cat([context_node_lm_feats, context_node_gnn_feats], dim=1)
+            #         if self.sep_ie_layers:
+            #             context_node_feats = self.ie_layers[gnn_layer_index](context_node_feats)
+            #         else:
+            #             context_node_feats = self.ie_layer(context_node_feats)
+            #         context_node_lm_feats, context_node_gnn_feats = torch.split(context_node_feats, [context_node_lm_feats.size(1), context_node_gnn_feats.size(1)], dim=1)
+            #         hidden_states[:, 0, :] = context_node_lm_feats
+            #         X[:, 0, :] = context_node_gnn_feats
+            #         _X = X.view_as(_X)
+
         if output_hidden_states:
             encoder_states = encoder_states + (hidden_states,)
 
         if not return_dict:
             return tuple(v for v in [hidden_states, encoder_states, all_attentions] if v is not None)
+
+
+        # if not self.use_gnn:
         return BaseModelOutput(
-            last_hidden_state=hidden_states, hidden_states=encoder_states, attentions=all_attentions
+            last_hidden_state=hidden_states,
+            hidden_states=encoder_states,
+            attentions=all_attentions
         )
+
+        # else:
+        #     return hidden_states, _X
+
+        # return BaseModelOutput(
+        #     last_hidden_state=hidden_states,
+        #     graph_hidden_states=_X,
+        #     hidden_states=encoder_states,
+        #     attentions=all_attentions
+        # )
 
 
 class BartDecoder(BartPretrainedModel):
@@ -911,7 +1419,7 @@ class BartDecoder(BartPretrainedModel):
         past_key_values=None,
         inputs_embeds=None,
         use_cache=None,
-        output_attentions=None,
+        output_attentions=True,
         output_hidden_states=None,
         return_dict=None,
     ):
@@ -980,7 +1488,12 @@ class BartDecoder(BartPretrainedModel):
             return_dict (`bool`, *optional*):
                 Whether or not to return a [`~file_utils.ModelOutput`] instead of a plain tuple.
         """
+
+
         output_attentions = output_attentions if output_attentions is not None else self.config.output_attentions
+
+        output_attentions=True,
+
         output_hidden_states = (
             output_hidden_states if output_hidden_states is not None else self.config.output_hidden_states
         )
@@ -1096,6 +1609,7 @@ class BartDecoder(BartPretrainedModel):
                 if encoder_hidden_states is not None:
                     all_cross_attentions += (layer_outputs[2],)
 
+
         # add hidden states from the last decoder layer
         if output_hidden_states:
             all_hidden_states += (hidden_states,)
@@ -1116,6 +1630,7 @@ class BartDecoder(BartPretrainedModel):
         )
 
 
+
 @add_start_docstrings(
     "The bare BART Model outputting raw hidden-states without any specific head on top.",
     BART_START_DOCSTRING,
@@ -1124,11 +1639,21 @@ class BartModel(BartPretrainedModel):
     def __init__(self, config: BartConfig):
         super().__init__(config)
 
+        use_gnn = config.use_gnn
+
+
         padding_idx, vocab_size = config.pad_token_id, config.vocab_size
         self.shared = nn.Embedding(vocab_size, config.d_model, padding_idx)
 
-        self.encoder = BartEncoder(config, self.shared)
-        self.decoder = BartDecoder(config, self.shared)
+        # if use_gnn:
+        #     self.encoder = GreaseLM(config, self.shared)
+        # else:
+        self.encoder = BartEncoder(config, self.shared, use_gnn=use_gnn)
+
+        if use_gnn:
+            self.decoder = GreaseBartDecoder(config, self.shared)
+        else:
+            self.decoder = BartDecoder(config, self.shared)
 
         # Initialize weights and apply final processing
         self.post_init()
@@ -1171,10 +1696,12 @@ class BartModel(BartPretrainedModel):
         output_attentions=None,
         output_hidden_states=None,
         return_dict=None,
+        subgraphs=None,
+        doc_ids=None,
     ):
-
         # different to other models, Bart automatically creates decoder_input_ids from
         # input_ids if no decoder_input_ids are provided
+
         if decoder_input_ids is None and decoder_inputs_embeds is None:
             if input_ids is None:
                 raise ValueError(
@@ -1200,9 +1727,11 @@ class BartModel(BartPretrainedModel):
                 attention_mask=attention_mask,
                 head_mask=head_mask,
                 inputs_embeds=inputs_embeds,
+                subgraphs=subgraphs,
                 output_attentions=output_attentions,
                 output_hidden_states=output_hidden_states,
                 return_dict=return_dict,
+                doc_ids=doc_ids,
             )
         # If the user passed a tuple for encoder_outputs, we wrap it in a BaseModelOutput when return_dict=True
         elif return_dict and not isinstance(encoder_outputs, BaseModelOutput):
@@ -1212,11 +1741,12 @@ class BartModel(BartPretrainedModel):
                 attentions=encoder_outputs[2] if len(encoder_outputs) > 2 else None,
             )
 
+
         # decoder outputs consists of (dec_features, past_key_value, dec_hidden, dec_attn)
         decoder_outputs = self.decoder(
             input_ids=decoder_input_ids,
             attention_mask=decoder_attention_mask,
-            encoder_hidden_states=encoder_outputs[0],
+            encoder_hidden_states=encoder_outputs.last_hidden_state,
             encoder_attention_mask=attention_mask,
             head_mask=decoder_head_mask,
             cross_attn_head_mask=cross_attn_head_mask,
@@ -1226,6 +1756,8 @@ class BartModel(BartPretrainedModel):
             output_attentions=output_attentions,
             output_hidden_states=output_hidden_states,
             return_dict=return_dict,
+            subgraphs=subgraphs,
+            doc_ids=doc_ids,
         )
 
         if not return_dict:
@@ -1238,8 +1770,8 @@ class BartModel(BartPretrainedModel):
             decoder_attentions=decoder_outputs.attentions,
             cross_attentions=decoder_outputs.cross_attentions,
             encoder_last_hidden_state=encoder_outputs.last_hidden_state,
-            encoder_hidden_states=encoder_outputs.hidden_states,
-            encoder_attentions=encoder_outputs.attentions,
+            encoder_hidden_states=None,
+            encoder_attentions=None,
         )
 
 
@@ -1291,7 +1823,7 @@ class BartForConditionalGeneration(BartPretrainedModel):
     def forward(
         self,
         input_ids=None,
-        subgraph=None,
+        subgraphs=None,
         attention_mask=None,
         decoder_input_ids=None,
         decoder_attention_mask=None,
@@ -1307,6 +1839,7 @@ class BartForConditionalGeneration(BartPretrainedModel):
         output_attentions=None,
         output_hidden_states=None,
         return_dict=None,
+        doc_ids=None,
     ):
         r"""
         labels (`torch.LongTensor` of shape `(batch_size, sequence_length)`, *optional*):
@@ -1316,7 +1849,6 @@ class BartForConditionalGeneration(BartPretrainedModel):
 
         Returns:
         """
-        import pdb;pdb.set_trace()
         return_dict = return_dict if return_dict is not None else self.config.use_return_dict
 
         if labels is not None:
@@ -1344,6 +1876,8 @@ class BartForConditionalGeneration(BartPretrainedModel):
             output_attentions=output_attentions,
             output_hidden_states=output_hidden_states,
             return_dict=return_dict,
+            subgraphs=subgraphs,
+            doc_ids=doc_ids,
         )
 
 
@@ -1380,6 +1914,7 @@ class BartForConditionalGeneration(BartPretrainedModel):
         cross_attn_head_mask=None,
         use_cache=None,
         encoder_outputs=None,
+        subgraphs=None,
         **kwargs
     ):
         # cut decoder_input_ids if past is used
@@ -1395,6 +1930,7 @@ class BartForConditionalGeneration(BartPretrainedModel):
             "head_mask": head_mask,
             "decoder_head_mask": decoder_head_mask,
             "cross_attn_head_mask": cross_attn_head_mask,
+            "subgraphs": subgraphs,
             "use_cache": use_cache,  # change this to avoid caching (presumably for debugging)
         }
 

@@ -571,6 +571,13 @@ class GenerationMixin:
             token_type_ids = model_kwargs["token_type_ids"]
             model_kwargs["token_type_ids"] = token_type_ids.index_select(0, expanded_return_idx)
 
+        if 'subgraphs' in model_kwargs:
+            subgraphs_expanded_list = []
+
+            for subgraph in model_kwargs['subgraphs']:
+                subgraphs_expanded_list.extend([subgraph]*6)
+            model_kwargs["subgraphs"] = subgraphs_expanded_list
+
         if attention_mask is not None:
             model_kwargs["attention_mask"] = attention_mask.index_select(0, expanded_return_idx)
 
@@ -581,6 +588,9 @@ class GenerationMixin:
                 0, expanded_return_idx.to(encoder_outputs.last_hidden_state.device)
             )
             model_kwargs["encoder_outputs"] = encoder_outputs
+
+
+
         return input_ids, model_kwargs
 
     @staticmethod
@@ -809,7 +819,8 @@ class GenerationMixin:
     def generate(
         self,
         inputs: Optional[torch.Tensor] = None,
-        subgraph= None,
+        subgraphs= None,
+        doc_ids= None,
         max_length: Optional[int] = None,
         min_length: Optional[int] = None,
         do_sample: Optional[bool] = None,
@@ -1091,7 +1102,8 @@ class GenerationMixin:
         model_kwargs["output_attentions"] = output_attentions
         model_kwargs["output_hidden_states"] = output_hidden_states
         model_kwargs["use_cache"] = use_cache
-        model_kwargs["subgraph"] = subgraph
+        model_kwargs["subgraphs"] = subgraphs
+        model_kwargs["doc_ids"] = doc_ids
 
         accepts_attention_mask = "attention_mask" in set(inspect.signature(self.forward).parameters.keys())
         requires_attention_mask = "encoder_outputs" not in model_kwargs
@@ -1100,6 +1112,7 @@ class GenerationMixin:
             model_kwargs["attention_mask"] = self._prepare_attention_mask_for_generation(
                 inputs_tensor, pad_token_id, eos_token_id
             )
+
 
         if self.config.is_encoder_decoder and "encoder_outputs" not in model_kwargs:
             # if model is encoder decoder encoder_outputs are created
@@ -1250,6 +1263,8 @@ class GenerationMixin:
                 do_early_stopping=early_stopping,
                 num_beam_hyps_to_keep=num_return_sequences,
             )
+
+
             # 11. interleave input_ids with `num_beams` additional sequences per batch
             input_ids, model_kwargs = self._expand_inputs_for_generation(
                 input_ids, expand_size=num_beams, is_encoder_decoder=self.config.is_encoder_decoder, **model_kwargs
@@ -2039,6 +2054,7 @@ class GenerationMixin:
                     break
 
             model_inputs = self.prepare_inputs_for_generation(input_ids, **model_kwargs)
+
 
             outputs = self(
                 **model_inputs,

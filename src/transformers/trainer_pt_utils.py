@@ -793,7 +793,6 @@ class IterableDatasetShard(IterableDataset):
 # In order to keep `trainer.py` compact and easy to understand, place any secondary PT Trainer
 # helper methods here
 
-
 def _get_learning_rate(self):
     if self.deepspeed:
         # with deepspeed's fp16 and dynamic loss scale enabled the optimizer/scheduler steps may
@@ -808,6 +807,7 @@ def _get_learning_rate(self):
             else:
                 raise
     else:
+        # import pdb;pdb.set_trace()
         last_lr = (
             # backward compatibility for pytorch schedulers
             self.lr_scheduler.get_last_lr()[0]
@@ -815,7 +815,6 @@ def _get_learning_rate(self):
             else self.lr_scheduler.get_lr()[0]
         )
     return last_lr
-
 
 def _secs2timedelta(secs):
     """

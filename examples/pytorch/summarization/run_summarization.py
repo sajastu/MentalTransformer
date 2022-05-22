@@ -17,19 +17,23 @@
 Fine-tuning the library models for sequence to sequence.
 """
 # You can also adapt this script on your own sequence to sequence task. Pointers for this are left as comments.
-
+import glob
+import json
 import logging
 import os
 import pickle
 import sys
 from dataclasses import dataclass, field
-from typing import Optional
-from datasets import Dataset
+from typing import Optional, List
+from datasets import Dataset, load_from_disk
 
 import datasets
 import nltk  # Here to have a nice missing dependency error message early on
 import numpy as np
 from datasets import load_dataset, load_metric
+from scipy.sparse import coo_matrix
+from tqdm import tqdm
+import torch
 
 import transformers
 from filelock import FileLock
@@ -51,9 +55,40 @@ from transformers.file_utils import is_offline_mode
 from transformers.trainer_utils import get_last_checkpoint
 from transformers.utils import check_min_version
 from transformers.utils.versions import require_version
-graph_data_train = pickle.load(open(f'/disk1/sajad/gov-reports/graph/splits/train.graph.adj.pk', mode='rb'))
-graph_data_val = pickle.load(open(f'/disk1/sajad/gov-reports/graph/splits/dev.graph.adj.pk', mode='rb'))
-graph_data_test = pickle.load(open(f'/disk1/sajad/gov-reports/graph/splits/test.graph.adj.pk', mode='rb'))
+
+
+# sys.path.insert(0,'/home/sajad/packages/summarization/transformers/')
+
+
+def read_graph_data(se):
+    graph_files = {}
+    # for se in [ 'test']:
+    instances = {}
+    print(f'Reading graph data for {se} set...')
+    with open(f'/disk1/sajad/datasets/news/cnn-dm/{se}.json') as fR:
+        for l in fR:
+            instances[json.loads(l)['id']] = json.loads(l)
+
+    graph_data = []
+    for file in tqdm(glob.glob(f'/disk1/sajad/datasets/news/cnn-dm/graph/{se}.*'),
+                     total=len(glob.glob(f'/disk1/sajad/datasets/news/cnn-dm/graph/{se}.*')), desc=f'{se}'):
+        with open(file, mode='rb') as fR:
+            graph_data_split = pickle.load(fR)
+            graph_data.extend(graph_data_split)
+
+
+    assert len(graph_data) == len(instances), "discrep in len"
+
+
+    for graph in tqdm(graph_data, total=len(graph_data)):
+        graph_files[graph['id']] = graph
+
+    del graph_data
+
+    return graph_files
+
+
+
 
 # sort on ids
 # graph_data = sorted(graph_data.items(), key=lambda x:int(x[0].split('-')[-1]))
@@ -108,6 +143,9 @@ class ModelArguments:
         default="main",
         metadata={"help": "The specific model version to use (can be a branch name, tag name or commit id)."},
     )
+
+    use_gnn: bool = field(default=True, metadata={"help": "Weight decay for AdamW if we apply some."})
+
     use_auth_token: bool = field(
         default=False,
         metadata={
@@ -132,9 +170,12 @@ class DataTrainingArguments:
 
     lang: str = field(default=None, metadata={"help": "Language id for summarization."})
 
+    filtered_ids: Optional[str] = field(default='', metadata={"help": "Language id for summarization."})
+
     dataset_name: Optional[str] = field(
         default=None, metadata={"help": "The name of the dataset to use (via the datasets library)."}
     )
+
     dataset_config_name: Optional[str] = field(
         default=None, metadata={"help": "The configuration name of the dataset to use (via the datasets library)."}
     )
@@ -166,25 +207,25 @@ class DataTrainingArguments:
         default=False, metadata={"help": "Overwrite the cached training and evaluation sets"}
     )
     preprocessing_num_workers: Optional[int] = field(
-        default=None,
+        default=15,
         metadata={"help": "The number of processes to use for the preprocessing."},
     )
     max_source_length: Optional[int] = field(
-        default=8192,
+        default=1024,
         metadata={
             "help": "The maximum total input sequence length after tokenization. Sequences longer "
             "than this will be truncated, sequences shorter will be padded."
         },
     )
     max_target_length: Optional[int] = field(
-        default=512,
+        default=100,
         metadata={
             "help": "The maximum total sequence length for target text after tokenization. Sequences longer "
             "than this will be truncated, sequences shorter will be padded."
         },
     )
     val_max_target_length: Optional[int] = field(
-        default=512,
+        default=None,
         metadata={
             "help": "The maximum total sequence length for validation target text after tokenization. Sequences longer "
             "than this will be truncated, sequences shorter will be padded. Will default to `max_target_length`."
@@ -253,10 +294,10 @@ class DataTrainingArguments:
         else:
             if self.train_file is not None:
                 extension = self.train_file.split(".")[-1]
-                assert extension in ["csv", "json"], "`train_file` should be a csv or a json file."
+                assert extension in ["csv", "json", "parquet"], "`train_file` should be a csv or a json file."
             if self.validation_file is not None:
                 extension = self.validation_file.split(".")[-1]
-                assert extension in ["csv", "json"], "`validation_file` should be a csv or a json file."
+                assert extension in ["csv", "json", "parquet"], "`validation_file` should be a csv or a json file."
         if self.val_max_target_length is None:
             self.val_max_target_length = self.max_target_length
 
@@ -348,6 +389,7 @@ def main():
     #
     # In distributed training, the load_dataset function guarantee that only one local process can concurrently
     # download the dataset.
+
     if data_args.dataset_name is not None:
         # Downloading and loading a dataset from the hub.
         raw_datasets = load_dataset(
@@ -356,6 +398,7 @@ def main():
     else:
         data_files = {}
         if data_args.train_file is not None:
+            # data_files["train"] = glob.glob(data_args.train_file.replace('0', '*'))
             data_files["train"] = data_args.train_file
             extension = data_args.train_file.split(".")[-1]
         if data_args.validation_file is not None:
@@ -364,7 +407,9 @@ def main():
         if data_args.test_file is not None:
             data_files["test"] = data_args.test_file
             extension = data_args.test_file.split(".")[-1]
+        print('Loading data files...')
         raw_datasets = load_dataset(extension, data_files=data_files, cache_dir=model_args.cache_dir)
+
     # See more about loading any type of standard or custom dataset (from files, python dict, pandas DataFrame, etc) at
     # https://huggingface.co/docs/datasets/loading_datasets.html.
 
@@ -379,6 +424,9 @@ def main():
         revision=model_args.model_revision,
         use_auth_token=True if model_args.use_auth_token else None,
     )
+
+    config.use_gnn = model_args.use_gnn
+
     tokenizer = AutoTokenizer.from_pretrained(
         model_args.tokenizer_name if model_args.tokenizer_name else model_args.model_name_or_path,
         cache_dir=model_args.cache_dir,
@@ -386,8 +434,9 @@ def main():
         revision=model_args.model_revision,
         use_auth_token=True if model_args.use_auth_token else None,
     )
-    model = AutoModelForSeq2SeqLM.from_pretrained(
+    model, loading_info = AutoModelForSeq2SeqLM.from_pretrained(
         model_args.model_name_or_path,
+        output_loading_info=True,
         from_tf=bool(".ckpt" in model_args.model_name_or_path),
         config=config,
         cache_dir=model_args.cache_dir,
@@ -395,12 +444,20 @@ def main():
         use_auth_token=True if model_args.use_auth_token else None,
     )
 
-    # model.config.num_beams = 4
-    model.config.max_length = 512
-    model.config.min_length = 250
-    # model.config.length_penalty = 2.0
-    model.config.gradient_checkpointing = False
-    model.config.early_stopping = False
+    def use_task_specific_params(model, task):
+        # update config with summarization specific params
+        task_specific_params = model.config.task_specific_params
+        if task_specific_params is not None:
+            model.config.update(task_specific_params.get(task, {}))
+
+    use_task_specific_params(model, 'summarization_cnn')
+
+    model.config.num_beams = 6
+    model.config.max_length = 62
+    model.config.min_length = 11
+    model.config.length_penalty = 1.0
+    # model.config.gradient_checkpointing = False
+    model.config.early_stopping = True
     model.config.no_repeat_ngram_size = 3
 
     model.resize_token_embeddings(len(tokenizer))
@@ -491,80 +548,33 @@ def main():
             f"`{model.__class__.__name__}`. This will lead to loss being calculated twice and will take up more memory"
         )
 
-    def preprocess_function_train(examples):
+    def graph_from_parquet(row, col, data, concepts, shape0, shape1, sentence_mask):
+        # out should have keys {'adj', 'concepts', 'sentence_mask'}
+        # first get row, col, and data to create coo_matrix
+
+        return {'adj': coo_matrix((data, (row, col)), shape=(shape0, shape1)), 'concepts': concepts, 'sentence_mask': sentence_mask}
+
+    def preprocess_function(examples):
         # remove pairs where at least one record is None
 
-        # if 'train' in examples['doc_id'][0]:
-        #     import pdb;
-        #     pdb.set_trace()
-
-        inputs, targets, sub_graphs, ids = [], [], [], []
-        for i in range(len(examples[text_column])):
-            if examples[text_column][i] is not None and examples[summary_column][i] is not None:
-                # if examples['doc_id'][i] in graph_data.keys():
-                inputs.append(examples[text_column][i])
-                targets.append(examples[summary_column][i])
-                sub_graphs.append(graph_data_train[examples['doc_id'][i]])
-                ids.append(examples['doc_id'][i])
-                # print(examples['doc_id'][i])
-                # if examples['doc_id'][i] == 'C':
-                #     print('here')
-                #     import pdb;pdb.set_trace()
-
-        inputs = [prefix + inp for inp in inputs]
-        model_inputs = tokenizer(inputs, max_length=data_args.max_source_length, padding=padding, truncation=True, sub_graphs=sub_graphs, ids=ids)
-
-        # Setup the tokenizer for targets
-        with tokenizer.as_target_tokenizer():
-            labels = tokenizer(targets, max_length=max_target_length, padding=True, truncation=True)
-
-        # If we are padding here, replace all tokenizer.pad_token_id in the labels by -100 when we want to ignore
-        # padding in the loss.
-        if padding == "max_length" and data_args.ignore_pad_token_for_loss:
-            labels["input_ids"] = [
-                [(l if l != tokenizer.pad_token_id else -100) for l in label] for label in labels["input_ids"]
-            ]
-
-        model_inputs["attention_mask"] = model_inputs.attention_mask
-
-        # create 0 global_attention_mask lists
-        # model_inputs["global_attention_mask"] = len(model_inputs["input_ids"]) * [
-        #     [0 for _ in range(len(model_inputs["input_ids"][0]))]
-        # ]
-
-        # since above lists are references, the following line changes the 0 index for all samples
-        # model_inputs["global_attention_mask"][0][0] = 1
-
-        # create 0 global_attention_mask lists
-        # model_inputs["global_attention_mask"] = [
-        #     len(model_inputs["input_ids"][i]) * [0 for _ in range(len(model_inputs["input_ids"][i]))] for i in
-        #     range(len(examples[text_column]))
-        # ]
-
-        # since above lists are references, the following line changes the 0 index for all samples
-        # for i in range(len(examples[text_column])):
-        #     model_inputs["global_attention_mask"][i][0] = 1
-
-        model_inputs["labels"] = labels["input_ids"]
-        return model_inputs
-
-
-        ########### FOR BART #############
-        # inputs, targets, sub_graphs = [], [], []
+        # inputs, targets, sub_graphs, ids = [], [], [], []
         # for i in range(len(examples[text_column])):
         #     if examples[text_column][i] is not None and examples[summary_column][i] is not None:
-        #         if examples['doc_id'][i] in graph_data.keys():
-        #             inputs.append(examples[text_column][i])
-        #             print(len(examples[text_column][i].strip()))
-        #
-        #             targets.append(examples[summary_column][i])
-        #             sub_graphs.append(graph_data[examples['doc_id'][i]])
+        #         # if examples['doc_id'][i] in graph_data.keys():
+        #         inputs.append(examples[text_column][i])
+        #         targets.append(examples[summary_column][i])
+        #         sub_graphs.append(graph_data_test[examples['doc_id'][i]])
+        #         ids.append(examples['doc_id'][i])
+        #         # print(examples['doc_id'][i])
+        #         # if examples['doc_id'][i] == 'C':
+        #         #     print('here')
+        #         #     import pdb;pdb.set_trace()
         # inputs = [prefix + inp for inp in inputs]
-        # model_inputs = tokenizer(inputs, max_length=data_args.max_source_length, padding=padding, truncation=True, sub_graphs=sub_graphs)
+        # model_inputs = tokenizer(inputs, max_length=data_args.max_source_length, padding=padding, truncation=True, sub_graphs=sub_graphs, ids=ids)
         #
-        #     # Setup the tokenizer for targets
+        # # Setup the tokenizer for targets
         # with tokenizer.as_target_tokenizer():
-        #     labels = tokenizer(targets, max_length=max_target_length, padding=padding, truncation=True)
+        #     labels = tokenizer(targets, max_length=max_target_length, padding=True, truncation=True)
         #
         # # If we are padding here, replace all tokenizer.pad_token_id in the labels by -100 when we want to ignore
         # # padding in the loss.
@@ -573,34 +583,40 @@ def main():
         #         [(l if l != tokenizer.pad_token_id else -100) for l in label] for label in labels["input_ids"]
         #     ]
         #
+        # model_inputs["attention_mask"] = model_inputs.attention_mask
+        #
+        # # create 0 global_attention_mask lists
+        # # model_inputs["global_attention_mask"] = [len(model_inputs["input_ids"][i]) * [0 for _ in range(len(model_inputs["input_ids"][i]))] for i in range(len(examples[text_column]))]
+        #
+        # # since above lists are references, the following line changes the 0 index for all samples
+        # # for i in range(len(examples[text_column])):
+        # #     model_inputs["global_attention_mask"][i][0] = 1
+        #
         # model_inputs["labels"] = labels["input_ids"]
         # return model_inputs
 
-    def preprocess_function_val(examples):
-        # remove pairs where at least one record is None
 
-        # if 'train' in examples['doc_id'][0]:
-        #     import pdb;
-        #     pdb.set_trace()
-
+        ########### FOR BART #############
+        # import pdb;pdb.set_trace()
         inputs, targets, sub_graphs, ids = [], [], [], []
         for i in range(len(examples[text_column])):
             if examples[text_column][i] is not None and examples[summary_column][i] is not None:
                 # if examples['doc_id'][i] in graph_data.keys():
                 inputs.append(examples[text_column][i])
                 targets.append(examples[summary_column][i])
-                sub_graphs.append(graph_data_val[examples['doc_id'][i]])
-                ids.append(examples['doc_id'][i])
-                # print(examples['doc_id'][i])
-                # if examples['doc_id'][i] == 'C':
-                #     print('here')
-                #     import pdb;pdb.set_trace()
+                sub_graphs.append(
+                    graph_from_parquet(examples['adj-row'][i], examples['adj-col'][i], examples['adj-data'][i],
+                                       examples['concepts'][i], examples['shape-0'][i], examples['shape-1'][i],
+                                       examples['sentence_mask'][i]))
+                ids.append(examples['id'][i])
+
         inputs = [prefix + inp for inp in inputs]
-        model_inputs = tokenizer(inputs, max_length=data_args.max_source_length, padding=padding, truncation=True, sub_graphs=sub_graphs, ids=ids)
+        model_inputs = tokenizer(inputs, max_length=data_args.max_source_length, padding=padding, truncation=True,
+                                 sub_graphs=sub_graphs, doc_ids=ids)
 
         # Setup the tokenizer for targets
         with tokenizer.as_target_tokenizer():
-            labels = tokenizer(targets, max_length=max_target_length, padding=True, truncation=True)
+            labels = tokenizer(targets, max_length=max_target_length, padding=padding, truncation=True)
 
         # If we are padding here, replace all tokenizer.pad_token_id in the labels by -100 when we want to ignore
         # padding in the loss.
@@ -609,124 +625,15 @@ def main():
                 [(l if l != tokenizer.pad_token_id else -100) for l in label] for label in labels["input_ids"]
             ]
 
-        model_inputs["attention_mask"] = model_inputs.attention_mask
-
-        # create 0 global_attention_mask lists
-        # model_inputs["global_attention_mask"] = [len(model_inputs["input_ids"][i]) * [0 for _ in range(len(model_inputs["input_ids"][i]))] for i in range(len(examples[text_column]))]
-
-        # since above lists are references, the following line changes the 0 index for all samples
-        # for i in range(len(examples[text_column])):
-        #     model_inputs["global_attention_mask"][i][0] = 1
-
         model_inputs["labels"] = labels["input_ids"]
         return model_inputs
-
-
-        ########### FOR BART #############
-        # inputs, targets, sub_graphs = [], [], []
-        # for i in range(len(examples[text_column])):
-        #     if examples[text_column][i] is not None and examples[summary_column][i] is not None:
-        #         if examples['doc_id'][i] in graph_data.keys():
-        #             inputs.append(examples[text_column][i])
-        #             print(len(examples[text_column][i].strip()))
-        #
-        #             targets.append(examples[summary_column][i])
-        #             sub_graphs.append(graph_data[examples['doc_id'][i]])
-        # inputs = [prefix + inp for inp in inputs]
-        # model_inputs = tokenizer(inputs, max_length=data_args.max_source_length, padding=padding, truncation=True, sub_graphs=sub_graphs)
-        #
-        #     # Setup the tokenizer for targets
-        # with tokenizer.as_target_tokenizer():
-        #     labels = tokenizer(targets, max_length=max_target_length, padding=padding, truncation=True)
-        #
-        # # If we are padding here, replace all tokenizer.pad_token_id in the labels by -100 when we want to ignore
-        # # padding in the loss.
-        # if padding == "max_length" and data_args.ignore_pad_token_for_loss:
-        #     labels["input_ids"] = [
-        #         [(l if l != tokenizer.pad_token_id else -100) for l in label] for label in labels["input_ids"]
-        #     ]
-        #
-        # model_inputs["labels"] = labels["input_ids"]
-        # return model_inputs
-
-    def preprocess_function_test(examples):
-        # remove pairs where at least one record is None
-
-        # if 'train' in examples['doc_id'][0]:
-        #     import pdb;
-        #     pdb.set_trace()
-
-        inputs, targets, sub_graphs, ids = [], [], [], []
-        for i in range(len(examples[text_column])):
-            if examples[text_column][i] is not None and examples[summary_column][i] is not None:
-                # if examples['doc_id'][i] in graph_data.keys():
-                inputs.append(examples[text_column][i])
-                targets.append(examples[summary_column][i])
-                sub_graphs.append(graph_data_test[examples['doc_id'][i]])
-                ids.append(examples['doc_id'][i])
-                # print(examples['doc_id'][i])
-                # if examples['doc_id'][i] == 'C':
-                #     print('here')
-                #     import pdb;pdb.set_trace()
-        inputs = [prefix + inp for inp in inputs]
-        model_inputs = tokenizer(inputs, max_length=data_args.max_source_length, padding=padding, truncation=True, sub_graphs=sub_graphs, ids=ids)
-
-        # Setup the tokenizer for targets
-        with tokenizer.as_target_tokenizer():
-            labels = tokenizer(targets, max_length=max_target_length, padding=True, truncation=True)
-
-        # If we are padding here, replace all tokenizer.pad_token_id in the labels by -100 when we want to ignore
-        # padding in the loss.
-        if padding == "max_length" and data_args.ignore_pad_token_for_loss:
-            labels["input_ids"] = [
-                [(l if l != tokenizer.pad_token_id else -100) for l in label] for label in labels["input_ids"]
-            ]
-
-        model_inputs["attention_mask"] = model_inputs.attention_mask
-
-        # create 0 global_attention_mask lists
-        # model_inputs["global_attention_mask"] = [len(model_inputs["input_ids"][i]) * [0 for _ in range(len(model_inputs["input_ids"][i]))] for i in range(len(examples[text_column]))]
-
-        # since above lists are references, the following line changes the 0 index for all samples
-        # for i in range(len(examples[text_column])):
-        #     model_inputs["global_attention_mask"][i][0] = 1
-
-        model_inputs["labels"] = labels["input_ids"]
-        return model_inputs
-
-
-        ########### FOR BART #############
-        # inputs, targets, sub_graphs = [], [], []
-        # for i in range(len(examples[text_column])):
-        #     if examples[text_column][i] is not None and examples[summary_column][i] is not None:
-        #         if examples['doc_id'][i] in graph_data.keys():
-        #             inputs.append(examples[text_column][i])
-        #             print(len(examples[text_column][i].strip()))
-        #
-        #             targets.append(examples[summary_column][i])
-        #             sub_graphs.append(graph_data[examples['doc_id'][i]])
-        # inputs = [prefix + inp for inp in inputs]
-        # model_inputs = tokenizer(inputs, max_length=data_args.max_source_length, padding=padding, truncation=True, sub_graphs=sub_graphs)
-        #
-        #     # Setup the tokenizer for targets
-        # with tokenizer.as_target_tokenizer():
-        #     labels = tokenizer(targets, max_length=max_target_length, padding=padding, truncation=True)
-        #
-        # # If we are padding here, replace all tokenizer.pad_token_id in the labels by -100 when we want to ignore
-        # # padding in the loss.
-        # if padding == "max_length" and data_args.ignore_pad_token_for_loss:
-        #     labels["input_ids"] = [
-        #         [(l if l != tokenizer.pad_token_id else -100) for l in label] for label in labels["input_ids"]
-        #     ]
-        #
-        # model_inputs["labels"] = labels["input_ids"]
-        # return model_inputs
 
     ##########
 
     if training_args.do_train:
         if "train" not in raw_datasets:
             raise ValueError("--do_train requires a train dataset")
+
 
         # graph_d = [g for gk, g in graph_data if 'train' in gk]
         train_dataset = raw_datasets["train"]
@@ -738,13 +645,14 @@ def main():
 
         with training_args.main_process_first(desc="train dataset map pre-processing"):
             train_dataset = train_dataset.map(
-                preprocess_function_train,
+                preprocess_function,
                 batched=True,
                 num_proc=data_args.preprocessing_num_workers,
                 remove_columns=column_names,
                 load_from_cache_file=not data_args.overwrite_cache,
                 desc="Running tokenizer on train dataset",
             )
+            # train_dataset.save_to_disk("/disk0/sajad/.cache/huggingface/splits/train")
 
     if training_args.do_eval:
         max_target_length = data_args.val_max_target_length
@@ -753,17 +661,16 @@ def main():
         eval_dataset = raw_datasets["validation"]
         if data_args.max_eval_samples is not None:
             eval_dataset = eval_dataset.select(range(data_args.max_eval_samples))
-
-        # import pdb;pdb.set_trace()
         with training_args.main_process_first(desc="validation dataset map pre-processing"):
             eval_dataset = eval_dataset.map(
-                preprocess_function_val,
+                preprocess_function,
                 batched=True,
                 num_proc=data_args.preprocessing_num_workers,
                 remove_columns=column_names,
                 load_from_cache_file=not data_args.overwrite_cache,
                 desc="Running tokenizer on validation dataset",
             )
+
 
     if training_args.do_predict:
 
@@ -775,13 +682,23 @@ def main():
             predict_dataset = predict_dataset.select(range(data_args.max_predict_samples))
         with training_args.main_process_first(desc="prediction dataset map pre-processing"):
             predict_dataset = predict_dataset.map(
-                preprocess_function_test,
+                preprocess_function,
                 batched=True,
                 num_proc=data_args.preprocessing_num_workers,
+                # num_proc=1,
                 remove_columns=column_names,
-                load_from_cache_file=not data_args.overwrite_cache,
+                load_from_cache_file=True,
                 desc="Running tokenizer on prediction dataset",
             )
+
+            if len(data_args.filtered_ids) > 0:
+                ids = [str(i) for i in data_args.filtered_ids.split(' ')]
+                import pyarrow.compute as compute
+                import pyarrow as pa
+                table = predict_dataset.data
+                flags = compute.is_in(table['doc_ids'], value_set=pa.array(ids, pa.string()))
+                filtered_table = table.filter(flags)
+                predict_dataset = datasets.Dataset(filtered_table, predict_dataset.info, predict_dataset.split)
 
     # Data collator
     label_pad_token_id = -100 if data_args.ignore_pad_token_for_loss else tokenizer.pad_token_id
@@ -830,6 +747,7 @@ def main():
     # Initialize our Trainer
     trainer = Seq2SeqTrainer(
         model=model,
+        loading_info=loading_info,
         args=training_args,
         train_dataset=train_dataset if training_args.do_train else None,
         eval_dataset=eval_dataset if training_args.do_eval else None,
@@ -858,6 +776,7 @@ def main():
         trainer.save_metrics("train", metrics)
         trainer.save_state()
 
+
     # Evaluation
     results = {}
     max_length = (
@@ -866,17 +785,18 @@ def main():
         else data_args.val_max_target_length
     )
     num_beams = data_args.num_beams if data_args.num_beams is not None else training_args.generation_num_beams
-    if training_args.do_eval:
-        logger.info("*** Evaluate ***")
-        metrics = trainer.evaluate(max_length=max_length, num_beams=num_beams, metric_key_prefix="eval")
-        max_eval_samples = data_args.max_eval_samples if data_args.max_eval_samples is not None else len(eval_dataset)
-        metrics["eval_samples"] = min(max_eval_samples, len(eval_dataset))
-
-        trainer.log_metrics("eval", metrics)
-        trainer.save_metrics("eval", metrics)
+    # if training_args.do_eval:
+    #     logger.info("*** Evaluate ***")
+    #     metrics = trainer.evaluate(max_length=max_length, num_beams=num_beams, metric_key_prefix="eval")
+    #     max_eval_samples = data_args.max_eval_samples if data_args.max_eval_samples is not None else len(eval_dataset)
+    #     metrics["eval_samples"] = min(max_eval_samples, len(eval_dataset))
+    #
+    #     trainer.log_metrics("eval", metrics)
+    #     trainer.save_metrics("eval", metrics)
 
     if training_args.do_predict:
         logger.info("*** Predict ***")
+        # import pdb;pdb.set_trace()
 
         predict_results = trainer.predict(
             predict_dataset, metric_key_prefix="predict", max_length=max_length, num_beams=num_beams
@@ -895,7 +815,8 @@ def main():
                 predictions = tokenizer.batch_decode(
                     predict_results.predictions, skip_special_tokens=True, clean_up_tokenization_spaces=True
                 )
-                predictions = [pred.strip() for pred in predictions]
+                predictions = [pred.strip().replace('\n', '--n-- ').strip() for pred in predictions]
+                # import pdb;pdb.set_trace()
                 output_prediction_file = os.path.join(training_args.output_dir, "generated_predictions.txt")
                 with open(output_prediction_file, "w") as writer:
                     writer.write("\n".join(predictions))

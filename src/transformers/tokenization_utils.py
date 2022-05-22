@@ -679,7 +679,7 @@ class PreTrainedTokenizer(PreTrainedTokenizerBase):
         add_special_tokens: bool = True,
         padding_strategy: PaddingStrategy = PaddingStrategy.DO_NOT_PAD,
         sub_graphs=None,
-        ids=None,
+        doc_ids=None,
         truncation_strategy: TruncationStrategy = TruncationStrategy.DO_NOT_TRUNCATE,
         max_length: Optional[int] = None,
         stride: int = 0,
@@ -739,8 +739,8 @@ class PreTrainedTokenizer(PreTrainedTokenizerBase):
 
         batch_outputs = self._batch_prepare_for_model(
             input_ids,
-            sub_graphs = sub_graphs,
-            ids = ids,
+            sub_graphs=sub_graphs,
+            doc_ids=doc_ids,
             add_special_tokens=add_special_tokens,
             padding_strategy=padding_strategy,
             truncation_strategy=truncation_strategy,
@@ -763,7 +763,7 @@ class PreTrainedTokenizer(PreTrainedTokenizerBase):
         self,
         batch_ids_pairs: List[Union[PreTokenizedInputPair, Tuple[List[int], None]]],
         sub_graphs = None,
-        ids = None,
+        doc_ids=None,
         add_special_tokens: bool = True,
         padding_strategy: PaddingStrategy = PaddingStrategy.DO_NOT_PAD,
         truncation_strategy: TruncationStrategy = TruncationStrategy.DO_NOT_TRUNCATE,
@@ -793,7 +793,7 @@ class PreTrainedTokenizer(PreTrainedTokenizerBase):
                 first_ids,
                 second_ids,
                 sub_graph=sub_graphs[idx] if sub_graphs is not None else None,
-                id=ids[idx] if ids is not None else None,
+                doc_ids=doc_ids[idx] if doc_ids is not None else None,
                 add_special_tokens=add_special_tokens,
                 padding=PaddingStrategy.DO_NOT_PAD.value,  # we pad in batch afterward
                 truncation=truncation_strategy.value,

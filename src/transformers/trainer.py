@@ -34,6 +34,7 @@ from tqdm.auto import tqdm
 
 
 # Integrations must be imported before ML frameworks:
+from .graph_data_prepartion.utils import optimization_utils
 from .integrations import (  # isort: split
     default_hp_search_backend,
     get_reporting_integration_callbacks,
@@ -283,6 +284,7 @@ class Trainer:
     def __init__(
         self,
         model: Union[PreTrainedModel, nn.Module] = None,
+        loading_info=None,
         args: TrainingArguments = None,
         data_collator: Optional[DataCollator] = None,
         train_dataset: Optional[Dataset] = None,
@@ -304,6 +306,7 @@ class Trainer:
         self.hp_name = None
         self.deepspeed = None
         self.is_in_train = False
+        self.loading_info = loading_info
 
         # memory metrics - must set up as early as possible
         self._memory_tracker = TrainerMemoryTracker(self.args.skip_memory_metrics)
@@ -824,6 +827,42 @@ class Trainer:
         self.create_optimizer()
         self.create_scheduler(num_training_steps=num_training_steps, optimizer=self.optimizer)
 
+    def sep_params(self, loaded_keys):
+        """Separate the parameters into loaded and not loaded."""
+        loaded_params = dict()
+        not_loaded_params = dict()
+        params_to_freeze = []
+        small_lr_params = dict()
+        large_lr_params = dict()
+        for n, p in self.model.named_parameters():
+            if n in loaded_keys:
+                loaded_params[n] = p
+                params_to_freeze.append(p)
+                small_lr_params[n] = p
+            else:
+                not_loaded_params[n] = p
+                large_lr_params[n] = p
+
+        return loaded_params, not_loaded_params, params_to_freeze, small_lr_params, large_lr_params
+
+    def sep_params2(self, loaded_keys):
+        """Separate the parameters into loaded and not loaded."""
+        loaded_params = dict()
+        not_loaded_params = dict()
+        params_to_freeze = []
+        small_lr_params = dict()
+        large_lr_params = dict()
+        for n, p in self.model.named_parameters():
+            if 'gnn_layers' in n or 'edge_encoder' in n or 'ie_layers' in n or 'emb_score' in n or 'Vh' in n or 'Vx' in n or 'emb_node_type' in n or 'lmgnn.fc' in n or \
+                'concept_emb' in n:
+
+                large_lr_params[n] = p
+            else:
+                small_lr_params[n] = p
+
+        return loaded_params, not_loaded_params, params_to_freeze, small_lr_params, large_lr_params
+
+
     def create_optimizer(self):
         """
         Setup the optimizer.
@@ -831,30 +870,48 @@ class Trainer:
         We provide a reasonable default that works well. If you want to use something else, you can pass a tuple in the
         Trainer's init through `optimizers`, or subclass and override this method in a subclass.
         """
+
+        loaded_model_keys = [p for p in self.model.state_dict().keys() if p.replace('model.','') not in self.loading_info['missing_keys']]
+        # loaded_params, not_loaded_params, params_to_freeze, small_lr_params, large_lr_params = self.sep_params(loaded_model_keys)
+        loaded_params, not_loaded_params, params_to_freeze, small_lr_params, large_lr_params = self.sep_params2(loaded_model_keys)
         if self.optimizer is None:
-            decay_parameters = get_parameter_names(self.model, [nn.LayerNorm])
-            decay_parameters = [name for name in decay_parameters if "bias" not in name]
+            # decay_parameters = get_parameter_names(self.model, [nn.LayerNorm])
+            # decay_parameters = [name for name in decay_parameters if "bias" not in name]
+            # optimizer_grouped_parameters = [
+            #     {
+            #         "params": [p for n, p in self.model.named_parameters() if n in decay_parameters],
+            #         "weight_decay": self.args.weight_decay,
+            #     },
+            #     {
+            #         "params": [p for n, p in self.model.named_parameters() if n not in decay_parameters],
+            #         "weight_decay": 0.0,
+            #     },
+            # ]
+
+            no_decay = ['bias', 'LayerNorm.bias']
             optimizer_grouped_parameters = [
-                {
-                    "params": [p for n, p in self.model.named_parameters() if n in decay_parameters],
-                    "weight_decay": self.args.weight_decay,
-                },
-                {
-                    "params": [p for n, p in self.model.named_parameters() if n not in decay_parameters],
-                    "weight_decay": 0.0,
-                },
+                {'params': [p for n, p in small_lr_params.items() if not any(nd in n for nd in no_decay)],
+                 'weight_decay': self.args.weight_decay, 'lr': self.args.learning_rate},
+                {'params': [p for n, p in small_lr_params.items() if any(nd in n for nd in no_decay)],
+                 'weight_decay': 0.0, 'lr': self.args.learning_rate},
+                {'params': [p for n, p in large_lr_params.items() if not any(nd in n for nd in no_decay)],
+                 'weight_decay': self.args.weight_decay, 'lr': self.args.decoder_learning_rate},
+                {'params': [p for n, p in large_lr_params.items() if any(nd in n for nd in no_decay)],
+                 'weight_decay': 0.0, 'lr': self.args.decoder_learning_rate},
             ]
 
             optimizer_cls, optimizer_kwargs = Trainer.get_optimizer_cls_and_kwargs(self.args)
-
             if self.sharded_ddp == ShardedDDPOption.SIMPLE:
                 self.optimizer = OSS(
                     params=optimizer_grouped_parameters,
                     optim=optimizer_cls,
                     **optimizer_kwargs,
                 )
-            else:
-                self.optimizer = optimizer_cls(optimizer_grouped_parameters, **optimizer_kwargs)
+            # else:
+            # self.optimizer = optimization_utils.OPTIMIZER_CLASSES['radam'](optimizer_grouped_parameters)
+            #
+            self.optimizer = optimizer_cls(optimizer_grouped_parameters, **optimizer_kwargs)
+
 
         if is_sagemaker_mp_enabled():
             self.optimizer = smp.DistributedOptimizer(self.optimizer)
@@ -924,6 +981,14 @@ class Trainer:
                 num_warmup_steps=self.args.get_warmup_steps(num_training_steps),
                 num_training_steps=num_training_steps,
             )
+            # try:
+            #     from transformers import (ConstantLRSchedule, WarmupLinearSchedule, WarmupConstantSchedule)
+            # except:
+            #     from transformers import get_constant_schedule, get_constant_schedule_with_warmup, \
+            #         get_linear_schedule_with_warmup
+
+            # self.lr_scheduler = get_constant_schedule(self.optimizer)
+
         return self.lr_scheduler
 
     def num_examples(self, dataloader: DataLoader) -> int:

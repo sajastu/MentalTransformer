@@ -1639,6 +1639,24 @@ class CustomizedEmbedding(nn.Module):
             else:
                 return self.emb(index) * self.scale
 
+
+
+# class GreaseLMEncoder(nn.Module):
+#
+#     def __init__(self, config: LEDConfig, embed_tokens: Optional[nn.Embedding] = None, k=5, n_ntype=3, n_etype=38,
+#                  n_concept=799273, concept_dim=200, concept_in_dim=1024, n_attention_head=2,
+#                  fc_dim=200, n_fc_layer=0, p_emb=0.2, p_gnn=0.2, p_fc=0.2,
+#                  pretrained_concept_emb=None, freeze_ent_emb=False, hidden_size=200,
+#                  init_range=0.02, ie_dim=200, info_exchange="every-other-layer", ie_layer_num=1, sep_ie_layers=False, layer_id=-1):
+#
+#         self.lmgnn = LEDEncoder()
+#
+#
+#     def forward
+
+
+
+
 class LEDEncoder(LEDPreTrainedModel):
     """
     Transformer encoder consisting of *config.encoder_layers* self attention layers. Each layer is a

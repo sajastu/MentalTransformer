@@ -187,8 +187,9 @@ def concepts2adj(node_ids):
     #         adj[e_attr][s][t] = 1
 
     # cids += 1  # note!!! index 0 is reserved for padding
+    adj_main = adj
     adj = coo_matrix(adj.reshape(-1, n_node))
-    return adj, cids
+    return adj, cids, adj_main
 
 
 def concepts_to_adj_matrices_1hop_neighbours(data):
@@ -393,7 +394,6 @@ def mp_concepts_to_adj_matrices_2hop_all_pair__use_LM__Part11(data):
     qa_nodes = set(concept_ids_1) | set(concept_ids_2)
     extra_nodes_weights = []
     seen = set()
-    extra_nodes = set()
     for qid in qa_nodes:
         for aid in qa_nodes:
             if qid != aid and qid in cpnet_simple.nodes and aid in cpnet_simple.nodes:
@@ -405,7 +405,42 @@ def mp_concepts_to_adj_matrices_2hop_all_pair__use_LM__Part11(data):
     extra_nodes_weights = sorted(extra_nodes_weights, reverse=True)
     extra_nodes = [b for a, b in extra_nodes_weights
               if not (b in seen or seen.add(b))]
-    nodes_to_preserve = min([5000, len(extra_nodes)])
+    nodes_to_preserve = min([10000, len(extra_nodes)])
+
+    extra_nodes = extra_nodes[:nodes_to_preserve]
+
+    return qa_nodes, set(extra_nodes), j1, sentence_1, doc_id
+
+
+def mp_concepts_to_adj_matrices_2hop_all_pair__use_LM__Part11_debug(data):
+    concept_ids_1, concept_ids_2, sentence_1, j1, doc_id = data
+    qa_nodes = set(concept_ids_1) | set(concept_ids_2)
+    extra_nodes_weights = []
+    seen = set()
+    c=0
+    print(f'leeennn : {len(qa_nodes)}')
+    for qid in qa_nodes:
+        for aid in qa_nodes:
+            if qid != aid and qid in cpnet_simple.nodes and aid in cpnet_simple.nodes:
+                cpnet_q = cpnet_simple[qid]
+                cpnet_a = cpnet_simple[aid]
+
+                if cpnet.has_edge(qid, aid):
+                    for data in cpnet[qid][aid].values():
+                        # import pdb;pdb.set_trace()
+                        if data['rel'] not in (15, 32):
+                            print(data['rel'])
+
+                            extra_nodes_weights.extend(sorted([(cpnet_q[id]['weight'] + cpnet_a[id]['weight'], id) for id in
+                                                               list(set(cpnet_q) & set(cpnet_a))]))
+
+                # extra_nodes |= [cpnet_q[id]['weight'] + cpnet_a[id]['weight'] for id in list(set(cpnet_q) & set(cpnet_a))]
+                # extra_nodes_weights.extend(sorted([(cpnet_q[id]['weight'] + cpnet_a[id]['weight'], id) for id in list(set(cpnet_q) & set(cpnet_a))]))
+    # sort extra_nodes_weights
+    extra_nodes_weights = sorted(extra_nodes_weights, reverse=True)
+    extra_nodes = [b for a, b in extra_nodes_weights
+              if not (b in seen or seen.add(b))]
+    nodes_to_preserve = min([50, len(extra_nodes)])
 
     extra_nodes = extra_nodes[:nodes_to_preserve]
 
@@ -424,7 +459,7 @@ def concepts_to_adj_matrices_2hop_all_pair__use_LM__Part11(sentences_unpruned_co
     doc_id = sentences_unpruned_concept_ids[0]
     sents = sentences_unpruned_concept_ids[1]
 
-    for j1, data_1 in (enumerate(sents)):
+    for j1, data_1 in tqdm(enumerate(sents), total=len(sents)):
         concept_ids_1, sentence_1 = data_1
         concept_ids_rest = set()
         for j2, data_2 in enumerate(sents[:j1] + sents[j1+1:]):
@@ -437,7 +472,7 @@ def concepts_to_adj_matrices_2hop_all_pair__use_LM__Part11(sentences_unpruned_co
 
     # pool = Pool(20)
 
-    qa_nodes, extra_nodes, _, _, doc_id = mp_concepts_to_adj_matrices_2hop_all_pair__use_LM__Part11(mp_list[0])
+    qa_nodes, extra_nodes, _, _, doc_id = mp_concepts_to_adj_matrices_2hop_all_pair__use_LM__Part11_debug(mp_list[0])
     extra_nodes = extra_nodes - qa_nodes
     all_concept_ids.update(qa_nodes)
     all_sentences = ' '.join([s[1] for s in sents])
@@ -464,6 +499,26 @@ def concepts_to_adj_matrices_2hop_all_pair__use_LM__Part2(data):
     cid2score = get_LM_score(concept_ids+extra_nodes, sentence)
     return (concept_ids, sentence, extra_nodes, cid2score)
 
+def concepts_to_adj_matrices_1hop_neighbours_without_relatedto(data):
+    qc_ids, ac_ids = data
+    qa_nodes = set(qc_ids) | set(ac_ids)
+    extra_nodes = set()
+    for u in set(qc_ids) | set(ac_ids):
+        if u in cpnet.nodes:
+            for v in cpnet[u]:
+                for data in cpnet[u][v].values():
+                    if data['rel'] not in (15, 32):
+                        extra_nodes.add(v)
+    extra_nodes = extra_nodes - qa_nodes
+    # schema_graph = sorted(qc_ids) + sorted(ac_ids) + sorted(extra_nodes)
+    # arange = np.arange(len(schema_graph))
+    # qmask = arange < len(qc_ids)
+    # amask = (arange >= len(qc_ids)) & (arange < (len(qc_ids) + len(ac_ids)))
+    # adj, concepts = concepts2adj(schema_graph)
+    # return adj, concepts, qmask, amask
+    return extra_nodes
+
+
 def concepts_to_adj_matrices_2hop_all_pair__use_LM__Part3(data):
     doc_id, concept_ids, sentence, extra_nodes = data
 
@@ -472,12 +527,9 @@ def concepts_to_adj_matrices_2hop_all_pair__use_LM__Part3(data):
     sentence_mask = arange < len(concept_ids)
 
     # amask = (arange >= len(concept_ids)) & (arange < (len(concept_ids)))
-    adj, concepts = concepts2adj(schema_graph)
+    adj, concepts, adj_main = concepts2adj(schema_graph)
 
-
-
-
-    return {'id': doc_id, 'adj': adj, 'concepts': concepts, 'sentence_mask': sentence_mask}
+    return {'doc_id': doc_id, 'adj': adj, 'concepts': concepts, 'sentence_mask': sentence_mask, 'adj_main': adj_main, 'sentence': sentence}
 
 ################################################################################
 
@@ -600,6 +652,57 @@ def generate_adj_data_from_grounded_concepts(grounded_path, cpnet_graph_path, cp
     print(f'adj data saved to {output_path}')
     print()
 
+def visualize_word_graph(res3, id2concept, id2relation):
+    # res3 =  {'doc_id': doc_id, 'adj': adj, 'concepts': concepts, 'sentence_mask': sentence_mask, 'adj_main': adj_main}
+    adj = res3[0]['adj_main']
+    cids = res3[0]['concepts']
+    sentence = res3[0]['sentence']
+    # get words, relations, and conections...
+
+    relations = {}
+    for relation_id in tqdm(range(adj.shape[0]), total=adj.shape[0]):
+        relation_name = id2relation[relation_id]
+
+        if relation_name == 'relatedto':
+            continue
+
+        word_list = adj[relation_id, :, :]
+
+        for src_node in range(word_list.shape[0]):
+            for tgt_node in range(word_list.shape[1]):
+                if word_list[src_node, tgt_node] == 1:
+                    # word match
+                    if id2concept[cids[src_node]] in relations.keys():
+                        relations[id2concept[cids[src_node]]].append((id2concept[cids[tgt_node]], relation_name))
+                    else:
+                        relations[id2concept[cids[src_node]]] = [(id2concept[cids[tgt_node]], relation_name)]
+
+    import matplotlib.pyplot as plt
+    import networkx as nx
+    edges_node_names = [[s, t[0]] for s in relations.keys() for t in relations[s]]
+    edges_relation_name = {(s, t[0]) : t[1] for s in relations.keys() for t in relations[s]}
+    G = nx.Graph()
+    G.add_edges_from(edges_node_names)
+    pos = nx.spring_layout(G)
+    plt.figure(3, figsize=(100, 100))
+
+    nx.draw(
+        G, pos, edge_color='black', width=1, linewidths=1,
+        node_size=500, node_color='pink', alpha=0.9,font_size=5,
+        labels={node: node for node in G.nodes()}
+    )
+
+    nx.draw_networkx_edge_labels(
+        G, pos,
+        edge_labels=edges_relation_name,font_size=5,
+        font_color='red'
+    )
+    plt.axis('off')
+    plt.show()
+    plt.savefig('word_plot.pdf', format="pdf", dpi=5000)
+    print(f'Sentence: \n {sentence}')
+
+
 
 
 def generate_adj_data_from_grounded_concepts__use_LM(grounded_path, cpnet_graph_path, cpnet_vocab_path, output_path, num_processes):
@@ -629,7 +732,7 @@ def generate_adj_data_from_grounded_concepts__use_LM(grounded_path, cpnet_graph_
         load_cpnet(cpnet_graph_path)
 
     conceptIDs_sentences_data = {}
-    statement_path = grounded_path.replace('ground', 'statement')
+    statement_path = grounded_path.replace('grounded', 'statement')
 
     with open(grounded_path, 'r', encoding='utf-8') as fin_ground, open(statement_path, 'r', encoding='utf-8') as fin_state:
         lines_ground = fin_ground.readlines()
@@ -638,7 +741,7 @@ def generate_adj_data_from_grounded_concepts__use_LM(grounded_path, cpnet_graph_
         lines_state_searcher = {}
         for l in lines_state:
             ent = json.loads(l)
-            lines_state_searcher[ent['id']] = ent
+            lines_state_searcher[ent['doc_id']] = ent
 
         # for j, line in enumerate(lines_ground):
         j, k = 0, 0
@@ -646,21 +749,19 @@ def generate_adj_data_from_grounded_concepts__use_LM(grounded_path, cpnet_graph_
             line = lines_ground[j]
             dic = json.loads(line)
             concept_ids = set(concept2id[c] for c in dic['concepts'])
-            statement_obj = lines_state_searcher[dic['id']]
-            statement_obj['statements'] = [s for s in statement_obj['statements'] if len(s.split()) > 1]
+            statement_obj = lines_state_searcher[dic['doc_id']]
             if k < len(statement_obj['statements']):
                 QAcontext = "{}".format(statement_obj['statements'][k])
             else:
                 k = 0
 
-            if dic['id'] in conceptIDs_sentences_data.keys():
-                conceptIDs_sentences_data[dic['id']].append((concept_ids, QAcontext))
+            if dic['doc_id'] in conceptIDs_sentences_data.keys():
+                conceptIDs_sentences_data[dic['doc_id']].append((concept_ids, QAcontext))
             else:
-                conceptIDs_sentences_data[dic['id']] = [(concept_ids, QAcontext)]
+                conceptIDs_sentences_data[dic['doc_id']] = [(concept_ids, QAcontext)]
 
             j += 1
             k += 1
-
     ###############
 
     # res1=[]
@@ -669,8 +770,6 @@ def generate_adj_data_from_grounded_concepts__use_LM(grounded_path, cpnet_graph_
 
     # res11 = concepts_to_adj_matrices_2hop_all_pair__use_LM__Part11(conceptIDs_sentences_data)
     # import pdb;pdb.set_trace()
-
-    # mp_list = [(k, v) for k, v in conceptIDs_sentences_data.items()]
 
     with Pool(num_processes) as p:
         res11 = list(tqdm(p.imap(concepts_to_adj_matrices_2hop_all_pair__use_LM__Part11, list(conceptIDs_sentences_data.items())), total=len(list(conceptIDs_sentences_data.items()))))
@@ -690,19 +789,19 @@ def generate_adj_data_from_grounded_concepts__use_LM(grounded_path, cpnet_graph_
     ############
 
     print('Last Part')
-    with Pool(num_processes) as p:
+    with MyPool(num_processes) as p:
         res3 = list(tqdm(p.imap(concepts_to_adj_matrices_2hop_all_pair__use_LM__Part3, res11), total=len(res11)))
     # for r in res2:
     #     res3.append(concepts_to_adj_matrices_2hop_all_pair__use_LM__Part3(r))
 
     ############
-
+    visualize_word_graph(res3, id2concept, id2relation)
 
     # res is a list of responses
-    with open(output_path, 'wb') as fout:
-        pickle.dump(res3, fout)
-    print(f'adj data saved to {output_path}')
-    print()
+    # with open(output_path, 'wb') as fout:
+    #     pickle.dump(res3, fout)
+    # print(f'adj data saved to {output_path}')
+    # print()
 
 
 

@@ -702,13 +702,20 @@ class BatchEncoding(UserDict):
         #     )
 
         # Do the tensor conversion in batch
+
         for key, value in self.items():
-            if key == 'subgraph':
+            if key == 'subgraphs':
                 for ix, v in enumerate(value):
                     for key_attr, vector in v.items():
                         value[ix][key_attr] = as_tensor(vector)
                 self[key] = value
+                continue
 
+
+
+            if key == 'doc_ids':
+                tensor = value
+                self[key] = tensor
                 continue
 
             try:
@@ -727,6 +734,7 @@ class BatchEncoding(UserDict):
 
                     self[key] = tensor
             except:  # noqa E722
+                import pdb;pdb.set_trace()
                 if key == "overflowing_tokens":
                     raise ValueError(
                         "Unable to create tensor returning overflowing tokens of different lengths. "
@@ -2628,7 +2636,7 @@ class PreTrainedTokenizerBase(SpecialTokensMixin, PushToHubMixin):
         truncation: Union[bool, str, TruncationStrategy] = False,
         max_length: Optional[int] = None,
         sub_graphs = None,
-        ids = None,
+        doc_ids = None,
         stride: int = 0,
         is_split_into_words: bool = False,
         pad_to_multiple_of: Optional[int] = None,
@@ -2672,7 +2680,7 @@ class PreTrainedTokenizerBase(SpecialTokensMixin, PushToHubMixin):
             add_special_tokens=add_special_tokens,
             padding_strategy=padding_strategy,
             sub_graphs=sub_graphs,
-            ids=ids,
+            doc_ids=doc_ids,
             truncation_strategy=truncation_strategy,
             max_length=max_length,
             stride=stride,
@@ -2702,7 +2710,7 @@ class PreTrainedTokenizerBase(SpecialTokensMixin, PushToHubMixin):
         add_special_tokens: bool = True,
         padding_strategy: PaddingStrategy = PaddingStrategy.DO_NOT_PAD,
         sub_graphs = None,
-        ids = None,
+        doc_ids = None,
         truncation_strategy: TruncationStrategy = TruncationStrategy.DO_NOT_TRUNCATE,
         max_length: Optional[int] = None,
         stride: int = 0,
@@ -2972,7 +2980,7 @@ class PreTrainedTokenizerBase(SpecialTokensMixin, PushToHubMixin):
         context_node = 0
         n_special_nodes = 1
         cxt2qlinked_rel = 0
-        max_node_num = 2000
+        max_node_num = 1000
         half_n_rel = len(self.id2relation) + 2
         # if self.cxt_node_connects_all:
         #     cxt2other_rel = half_n_rel
@@ -3024,7 +3032,7 @@ class PreTrainedTokenizerBase(SpecialTokensMixin, PushToHubMixin):
 
             # Prepare nodes
             concepts = concepts[:num_concept - n_special_nodes]
-            concept_ids[idx, n_special_nodes:num_concept] = torch.tensor(concepts + 1)
+            concept_ids[idx, n_special_nodes:num_concept] = torch.tensor([c+1 for c in concepts])
             # To accomodate contextnode, original concept_ids incremented by 1
             concept_ids[idx, 0] = context_node
             # this is the "concept_id" for contextnode
@@ -3113,7 +3121,7 @@ class PreTrainedTokenizerBase(SpecialTokensMixin, PushToHubMixin):
         ids: List[int],
         pair_ids: Optional[List[int]] = None,
         sub_graph=None,
-        id=None,
+        doc_ids=None,
         add_special_tokens: bool = True,
         padding: Union[bool, str, PaddingStrategy] = False,
         truncation: Union[bool, str, TruncationStrategy] = False,
@@ -3224,7 +3232,8 @@ class PreTrainedTokenizerBase(SpecialTokensMixin, PushToHubMixin):
                 encoded_inputs["special_tokens_mask"] = [0] * len(sequence)
 
         if sub_graph is not None:
-            encoded_inputs["subgraph"] = self._prepare_subgraph(sub_graph)
+            encoded_inputs["subgraphs"] = self._prepare_subgraph(sub_graph)
+            encoded_inputs["doc_ids"] = doc_ids
 
 
         # Check lengths
@@ -3415,9 +3424,9 @@ class PreTrainedTokenizerBase(SpecialTokensMixin, PushToHubMixin):
         # Initialize attention mask if not present.
         if return_attention_mask and "attention_mask" not in encoded_inputs:
             encoded_inputs["attention_mask"] = [1] * len(required_input)
-            encoded_inputs["global_attention_mask"] = [0] * len(required_input)
+            # encoded_inputs["global_attention_mask"] = [0] * len(required_input)
             # global_attention_mask = torch.zeros_like(encoded_inputs["attention_mask"])
-            encoded_inputs["global_attention_mask"][0] = 1
+            # encoded_inputs["global_attention_mask"][0] = 1
 
         if needs_to_be_padded:
             difference = max_length - len(required_input)
@@ -3426,7 +3435,7 @@ class PreTrainedTokenizerBase(SpecialTokensMixin, PushToHubMixin):
                 if return_attention_mask:
 
                     encoded_inputs["attention_mask"] = encoded_inputs["attention_mask"] + [0] * difference
-                    encoded_inputs["global_attention_mask"] = encoded_inputs["global_attention_mask"] + [0] * difference
+                    # encoded_inputs["global_attention_mask"] = encoded_inputs["global_attention_mask"] + [0] * difference
                 if "token_type_ids" in encoded_inputs:
                     encoded_inputs["token_type_ids"] = (
                         encoded_inputs["token_type_ids"] + [self.pad_token_type_id] * difference

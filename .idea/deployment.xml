@@ -12,7 +12,7 @@
       <paths name="sajad@brunello:20022 password">
         <serverdata>
           <mappings>
-            <mapping deploy="packages/summarization/transformers" local="$PROJECT_DIR$" web="/home/sajad/packages/summarization/transformers" />
+            <mapping deploy="/home/sajad/packages/summarization/transformers" local="$PROJECT_DIR$" web="/home/sajad/packages/summarization/transformers" />
           </mappings>
         </serverdata>
       </paths>

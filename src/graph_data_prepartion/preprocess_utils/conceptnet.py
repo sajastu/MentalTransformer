@@ -4,11 +4,12 @@ import json
 from tqdm import tqdm
 import numpy as np
 
-
+try:
+    from .utils import check_file
+except ImportError:
+    from utils.utils import check_file
 
 __all__ = ['extract_english', 'construct_graph', 'merged_relations']
-
-from graph_data_prepartion.utils.utils import check_file
 
 relation_groups = [
     'atlocation/locatednear',
